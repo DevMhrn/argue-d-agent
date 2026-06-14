@@ -1,0 +1,22 @@
+{
+  "name": "argue-d-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lumen — AI Subrogation Recovery Officer (Band of Agents Hackathon)",
+  "scripts": {
+    "demo": "tsx src/runDemo.ts",
+    "demo:live": "LUMEN_MOCK=0 tsx src/runDemo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.67.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
