@@ -34,6 +34,10 @@ export const MODELS = {
   advocate: process.env.MODEL_ADVOCATE ?? 'claude-3-opus',
   opposing: process.env.MODEL_OPPOSING ?? 'gpt-4o',
   adjudicator: process.env.MODEL_ADJUDICATOR ?? 'claude-3-5-sonnet',
+  /** Second, independent adjudicator on a different model family (OSS). */
+  adjudicator_b: process.env.MODEL_ADJUDICATOR_B ?? 'meta-llama/Meta-Llama-3.1-70B-Instruct',
+  /** Source-Alignment Verifier — high-volume textual alignment, OSS fits well. */
+  verifier: process.env.MODEL_VERIFIER ?? 'Qwen/Qwen2.5-72B-Instruct',
   drafter: process.env.MODEL_DRAFTER ?? 'claude-3-5-sonnet',
 } as const;
 

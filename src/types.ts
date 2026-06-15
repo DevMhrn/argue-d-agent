@@ -81,4 +81,24 @@ export interface FinalDecision extends Decision {
   escalate: boolean;
   escalateReasons: string[];
   nearFiftyFifty: boolean;
+  /** Optional second-adjudicator view; present when dual-adjudication is enabled. */
+  secondary?: Decision;
+  /** How A and B related on the percentage. */
+  consensus: 'agreement' | 'disagreement' | 'single' | 'none';
+  consensusDelta: number;
 }
+
+/** A single (claim, fact-citation) pair the Source-Alignment Verifier audits. */
+export const AlignmentResultSchema = z.object({
+  pointIndex: z.number(),
+  pointSource: z.string(),
+  claim: z.string(),
+  citationId: z.string(),
+  alignment: z.enum(['supported', 'contradicted', 'overreach', 'neutral']),
+  reasoning: z.string(),
+});
+export type AlignmentResult = z.infer<typeof AlignmentResultSchema>;
+
+export const AlignmentSchema = z.object({
+  results: z.array(AlignmentResultSchema),
+});
