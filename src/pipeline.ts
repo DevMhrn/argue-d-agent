@@ -1,6 +1,8 @@
 import { AGENTS, AgentDef } from './agents';
 import { chat } from './providers';
 import { checkPoints } from './citationGate';
+import { checkLedgerAnchoring } from './factGate';
+import { checkAdjudicatorMath } from './mathGate';
 import { validCitationIds, renderLedger, renderStatutes } from './ledger';
 import { Room } from './room';
 import { ESCALATE_USD } from './config';
@@ -17,7 +19,10 @@ export interface LumenResult {
   letter: string;
 }
 
-const GATE = 'Citation Gate';
+const CITE_GATE = 'Citation Gate';
+const FACT_GATE = 'Fact Gate';
+const MATH_GATE = 'Math Gate';
+const LETTER_GATE = 'Letter Reconciliation';
 const SYS = 'System';
 
 export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Room): Promise<LumenResult> {
@@ -35,6 +40,18 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
   const ledger = EvidenceLedgerSchema.parse(safeJson(await ask(AGENTS.evidence, `Build the evidence ledger from:\n${docsText}`, 'ledger')));
   room.post(AGENTS.evidence.name, AGENTS.evidence.color, 'message',
     `Evidence Ledger — ${ledger.facts.length} facts:\n` + ledger.facts.map((f) => `   [${f.id}] ${f.statement}  (${f.source})`).join('\n'));
+
+  // 2b) Fact Gate — every fact's verbatim quote must appear in the source document.
+  //     Code-enforced foundation check. If any fact fails, post a warning to the room
+  //     but proceed (the demo continues; downstream agents can still see what slipped).
+  const factCheck = checkLedgerAnchoring(ledger, claim);
+  if (factCheck.ok) {
+    room.post(FACT_GATE, 46, 'gate', `All ${ledger.facts.length} facts anchored to verbatim source quotes.`);
+  } else {
+    room.post(FACT_GATE, 196, 'gate',
+      `REJECTED ${factCheck.violations.length} fact(s):\n   - ${factCheck.violations.join('\n   - ')}`);
+  }
+
   room.post(SYS, 250, 'handoff',
     'Ledger locked. RULE NOW ACTIVE: every argument must cite a fact id or statute id, or the Citation Gate rejects it.');
 
@@ -61,12 +78,24 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
     `Opposing attacks:\n${fmt(attackPoints)}\n\nAdvocate rebuttal:\n${fmtRebuttal(rebuttal)}`;
   const decision = DecisionSchema.parse(safeJson(await ask(AGENTS.adjudicator, `${context}\n\nDEBATE TRANSCRIPT:\n${transcript}\n\nDecide the other driver's fault %.`, 'adjudicator')));
 
+  // 7b) Math Gate — the percentage must actually follow from the fault table.
+  //     Code-enforced, mirrors the Citation Gate but for arithmetic. On failure
+  //     we surface the discrepancy and force escalation (don't silently trust the LLM's math).
+  const mathCheck = checkAdjudicatorMath(decision);
+  if (mathCheck.ok) {
+    room.post(MATH_GATE, 46, 'gate',
+      `Fault table implies ${mathCheck.computedPct}%, Adjudicator stated ${mathCheck.statedPct}% (delta ${mathCheck.delta}pp).`);
+  } else {
+    room.post(MATH_GATE, 196, 'gate', `REJECTED — ${mathCheck.violation}`);
+  }
+
   const recoveryUsd = Math.round((claim.damagesUsd * decision.otherDriverFaultPct) / 100);
   const nearFiftyFifty = Math.abs(50 - decision.otherDriverFaultPct) < 10;
   const escalateReasons: string[] = [];
   if (recoveryUsd >= ESCALATE_USD) escalateReasons.push(`recovery $${recoveryUsd.toLocaleString()} ≥ $${ESCALATE_USD.toLocaleString()} threshold`);
   if (decision.confidence < 0.6) escalateReasons.push(`confidence ${decision.confidence} below 0.60`);
   if (nearFiftyFifty) escalateReasons.push(`fault split near 50/50 (${decision.otherDriverFaultPct}%)`);
+  if (!mathCheck.ok) escalateReasons.push(`math gate violation (${mathCheck.delta}pp table/percentage gap)`);
   const escalate = escalateReasons.length > 0;
   const finalDecision: FinalDecision = { ...decision, recoveryUsd, escalate, escalateReasons, nearFiftyFifty };
 
@@ -80,7 +109,32 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
   const letter = (safeJson(await ask(AGENTS.drafter, `${context}\n\nDecision: other driver ${decision.otherDriverFaultPct}% at fault; recovery $${recoveryUsd}. Write the demand letter.`, 'drafter')) as { letter: string }).letter;
   room.post(AGENTS.drafter.name, AGENTS.drafter.color, 'message', 'Drafted the formal subrogation demand letter (full text in output).');
 
+  // 8b) Letter Reconciliation — the letter must actually mention the decided
+  //     fault % and recovery amount. Catches the worst-case failure where the
+  //     dashboard says one number and the letter says another.
+  const letterIssues = reconcileLetter(letter, finalDecision);
+  if (letterIssues.length === 0) {
+    room.post(LETTER_GATE, 46, 'gate', `Letter matches the adjudicator's ${decision.otherDriverFaultPct}% / $${recoveryUsd.toLocaleString()}.`);
+  } else {
+    room.post(LETTER_GATE, 196, 'gate', `FAILED:\n   - ${letterIssues.join('\n   - ')}`);
+  }
+
   return { intake, ledger, decision: finalDecision, letter };
+}
+
+/** Verifies the drafted letter actually contains the decision's headline numbers. */
+function reconcileLetter(letter: string, decision: FinalDecision): string[] {
+  const issues: string[] = [];
+  const pctStr = `${decision.otherDriverFaultPct}%`;
+  if (!letter.includes(pctStr)) {
+    issues.push(`letter does not mention the ${pctStr} fault assessment`);
+  }
+  const recComma = `$${decision.recoveryUsd.toLocaleString()}`;
+  const recPlain = `$${decision.recoveryUsd}`;
+  if (!letter.includes(recComma) && !letter.includes(recPlain)) {
+    issues.push(`letter does not mention the recovery amount ${recComma}`);
+  }
+  return issues;
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -103,7 +157,7 @@ async function producePoints(agent: AgentDef, room: Room, user: string, mockKeyB
       return parsed.points;
     }
     lastViolations = gate.violations;
-    room.post(GATE, 196, 'gate', `REJECTED ${agent.name} (attempt ${attempt}):\n   - ${gate.violations.join('\n   - ')}`);
+    room.post(CITE_GATE, 196, 'gate', `REJECTED ${agent.name} (attempt ${attempt}):\n   - ${gate.violations.join('\n   - ')}`);
     if (attempt === maxAttempts) {
       room.post(agent.name, agent.color, 'message', fmt(parsed.points) + '\n   (⚠ unresolved gate violations)');
       return parsed.points;
@@ -126,7 +180,7 @@ async function produceRebuttal(agent: AgentDef, room: Room, user: string, mockKe
       return parsed;
     }
     lastViolations = gate.violations;
-    room.post(GATE, 196, 'gate', `REJECTED ${agent.name} (attempt ${attempt}):\n   - ${gate.violations.join('\n   - ')}`);
+    room.post(CITE_GATE, 196, 'gate', `REJECTED ${agent.name} (attempt ${attempt}):\n   - ${gate.violations.join('\n   - ')}`);
   }
   return { responses: [] };
 }

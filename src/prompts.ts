@@ -22,10 +22,19 @@ Output JSON: { "parties": {"insured": str, "otherParty": str}, "date": str, "loc
 
 export const EVIDENCE_PROMPT = `
 You are the Evidence Aggregator. Read every document and build the EVIDENCE LEDGER:
-a flat list of atomic, checkable facts. Each fact gets an id (F1, F2, ...), the exact
-source, and a confidence 0-1. Do not draw conclusions or assign fault — just record
-what the documents say. ${GROUNDING_RULES}
-Output JSON: { "caseId": str, "facts": [ {"id": str, "statement": str, "source": str, "confidence": number} ] }
+a flat list of atomic, checkable facts. Each fact gets an id (F1, F2, ...), a short
+paraphrased statement, the source filename, a CONFIDENCE 0-1, and a VERBATIM QUOTE
+copied EXACTLY from the source document.
+
+The verbatimQuote rule (enforced by code in the Fact Gate):
+- verbatimQuote MUST be a contiguous substring of the source document's text.
+- If you cannot find an exact substring that supports a fact, do NOT include the fact.
+- Do not paraphrase, abbreviate, or smooth the quote — copy it as-is.
+- The source field must begin with one of the input document filenames.
+
+Do not draw conclusions or assign fault — just record what the documents say.
+${GROUNDING_RULES}
+Output JSON: { "caseId": str, "facts": [ {"id": str, "statement": str, "source": str, "verbatimQuote": str, "confidence": number} ] }
 `.trim();
 
 export const ADVOCATE_PROMPT = `

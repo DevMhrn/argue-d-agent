@@ -5,6 +5,9 @@ export const FactSchema = z.object({
   id: z.string(), // e.g. "F1"
   statement: z.string(),
   source: z.string(), // e.g. "police_report.pdf p.2"
+  /** Contiguous substring of the source document text — anchors the fact.
+   *  Checked by the Fact Gate in src/factGate.ts. */
+  verbatimQuote: z.string(),
   confidence: z.number().min(0).max(1),
 });
 export type Fact = z.infer<typeof FactSchema>;

@@ -18,8 +18,11 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 function printPosting(p: Posting): void {
   const tag = `${p.agent}`;
   if (p.kind === 'gate') {
-    console.log('\n' + c(196, bold(`  ⛔ ${tag}`)));
-    console.log(c(196, indent(p.content)));
+    const isFail = /\b(REJECTED|FAILED)\b/.test(p.content);
+    const icon = isFail ? '⛔' : '✓';
+    const col = isFail ? 196 : p.color;
+    console.log('\n' + c(col, bold(`  ${icon} ${tag}`)));
+    console.log(c(col, indent(p.content)));
   } else if (p.kind === 'decision') {
     console.log('\n' + c(p.color, bold(`  ⚖  ${tag}`)));
     console.log(c(p.color, indent(p.content)));
