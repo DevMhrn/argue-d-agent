@@ -85,6 +85,7 @@ async def api_run(case_id: str):
                 "decision": result.decision.model_dump(),
                 "letter": result.letter,
                 "auditHash": audit,
+                "bandRoomId": getattr(room, "room_id", None),
             }))
             await queue.put(("done", {}))
         except Exception as e:  # noqa: BLE001
