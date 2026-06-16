@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lumen — Subrogation Recovery Intelligence</title>
+    <meta
+      name="description"
+      content="Lumen convenes a band of specialist AI agents to investigate, debate, and adjudicate insurance subrogation recovery — every claim anchored to cited evidence."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- ===================== App bar ===================== -->
+    <header class="appbar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <div class="brand__txt">
+          <h1>Lumen</h1>
+          <p>Subrogation Recovery Intelligence</p>
+        </div>
+      </div>
+
+      <div class="appbar__controls">
+        <label class="field">
+          <span class="field__label">Case file</span>
+          <select id="caseSelect" class="select"></select>
+        </label>
+        <button id="runBtn" class="btn btn--primary" disabled>
+          <span class="btn__dot"></span> Run recovery analysis
+        </button>
+        <div class="appbar__badges">
+          <span id="modeBadge" class="badge badge--muted" title="Execution mode">…</span>
+          <span class="badge badge--band" title="Coordinated through the Band agent network">
+            <span class="badge__pulse"></span> Band coordinated
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===================== Assurance rail ===================== -->
+    <section class="rail" id="rail" aria-label="Verification pipeline">
+      <div class="rail__inner">
+        <div class="rail__title">Assurance pipeline</div>
+        <ol class="stages" id="stages">
+          <li class="stage" data-stage="intake"><span class="stage__num">1</span><span class="stage__name">Intake</span></li>
+          <li class="stage" data-stage="evidence"><span class="stage__num">2</span><span class="stage__name">Evidence&nbsp;· Fact Gate</span></li>
+          <li class="stage" data-stage="debate"><span class="stage__num">3</span><span class="stage__name">Debate&nbsp;· Citation Gate</span></li>
+          <li class="stage" data-stage="adjudication"><span class="stage__num">4</span><span class="stage__name">Adjudication&nbsp;· Math + Consensus</span></li>
+          <li class="stage" data-stage="alignment"><span class="stage__num">5</span><span class="stage__name">Source Alignment</span></li>
+          <li class="stage" data-stage="letter"><span class="stage__num">6</span><span class="stage__name">Demand&nbsp;· Reconciliation</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===================== Main grid ===================== -->
+    <main class="grid">
+      <!-- Left: evidence -->
+      <aside class="col col--left">
+        <section class="card">
+          <div class="card__head">
+            <h2>Evidence intake</h2>
+            <span class="tag">ingestion</span>
+          </div>
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone__icon" aria-hidden="true">⤓</div>
+            <p><strong>Drop evidence</strong> — police reports, photos, audio statements, repair invoices</p>
+            <p class="dropzone__hint" id="ingestHint">Connects to the ingestion pipeline (OCR · ASR · large-doc chunking)</p>
+          </div>
+        </section>
+
+        <section class="card" id="caseCard">
+          <div class="card__head"><h2>Case file</h2></div>
+          <div id="caseMeta" class="case-meta muted-block">Select a case to begin.</div>
+          <ul id="docList" class="doclist"></ul>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2>Evidence ledger</h2>
+            <span class="tag tag--ok" id="ledgerStatus" hidden>anchored</span>
+          </div>
+          <div id="ledger" class="ledger muted-block">
+            The ledger is built and locked once analysis runs — every fact anchored to a verbatim source quote.
+          </div>
+        </section>
+      </aside>
+
+      <!-- Center: the band room (hero) -->
+      <section class="col col--center">
+        <section class="card card--room">
+          <div class="card__head card__head--room">
+            <div>
+              <h2>Band room — live coordination</h2>
+              <p class="room__sub">Specialist agents investigate, argue, and are gated on evidence in real time</p>
+            </div>
+            <div class="room__legend">
+              <span class="lg"><i class="lg__dot lg__dot--agent"></i>agent</span>
+              <span class="lg"><i class="lg__dot lg__dot--gate"></i>gate</span>
+              <span class="lg"><i class="lg__dot lg__dot--decision"></i>decision</span>
+            </div>
+          </div>
+          <div class="feed" id="feed">
+            <div class="feed__empty" id="feedEmpty">
+              <div class="feed__empty-mark" aria-hidden="true"></div>
+              <h3>No active session</h3>
+              <p>Choose a case file and run the recovery analysis to convene the agent band.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Right: decision -->
+      <aside class="col col--right">
+        <section class="card card--decision">
+          <div class="card__head"><h2>Recovery decision</h2></div>
+          <div id="decisionEmpty" class="muted-block">
+            The adjudicated recovery, fault split, and demand letter appear here after analysis.
+          </div>
+
+          <div id="decision" hidden>
+            <div class="recovery">
+              <div class="recovery__label">Recommended recovery demand</div>
+              <div class="recovery__amount" id="recoveryAmount">—</div>
+              <div class="recovery__sub" id="recoverySub"></div>
+            </div>
+
+            <div class="metric">
+              <div class="metric__head"><span>Liability split</span><span id="faultPctLabel"></span></div>
+              <div class="splitbar"><div class="splitbar__fill" id="splitFill"></div></div>
+              <div class="splitbar__legend">
+                <span><i class="sw sw--them"></i> Other driver</span>
+                <span><i class="sw sw--us"></i> Our insured</span>
+              </div>
+            </div>
+
+            <div class="metric">
+              <div class="metric__head"><span>Confidence</span><span id="confLabel"></span></div>
+              <div class="meter"><div class="meter__fill" id="confFill"></div></div>
+            </div>
+
+            <div id="consensus" class="consensus"></div>
+
+            <div id="escalation" class="escalation" hidden>
+              <div class="escalation__head">⚑ Escalated to human adjuster</div>
+              <ul id="escalationReasons" class="escalation__reasons"></ul>
+              <div class="escalation__actions">
+                <button class="btn btn--approve" id="approveBtn">Approve demand</button>
+                <button class="btn btn--reject" id="rejectBtn">Override / reject</button>
+              </div>
+              <div id="humanResult" class="escalation__result" hidden></div>
+            </div>
+
+            <details class="panel">
+              <summary>Fault table <span class="muted">(auditable basis)</span></summary>
+              <table class="ftable" id="faultTable"></table>
+            </details>
+
+            <details class="panel" open>
+              <summary>Demand letter <button class="linkbtn" id="downloadLetter" type="button">download</button></summary>
+              <pre class="letter" id="letter"></pre>
+            </details>
+
+            <div class="audit" id="audit" hidden>
+              <span class="audit__label">Tamper-evident audit hash</span>
+              <code id="auditHash" title="SHA-256 of the full transcript, decision, and letter"></code>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="foot">
+      <span>Lumen · a band of specialist agents for insurance subrogation recovery</span>
+      <span class="foot__tech">
+        <i>Band</i><i>AI/ML API</i><i>Featherless</i><i>MIT</i>
+      </span>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
