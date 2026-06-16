@@ -1,0 +1,41 @@
+# Band connection config. Copy to band_config.yaml (in repo root) and fill in.
+# Activate the real Band room with:  LUMEN_BAND=1 python -m lumen_py.run_server
+#
+# Each agent below must be created in the Band dashboard (app.band.ai). For each,
+# Band gives an Agent ID (UUID) and an API key (shown ONCE at creation — copy it).
+
+rest_url: "https://app.band.ai"
+ws_url: "wss://app.band.ai/api/v1/socket/websocket"
+
+# Leave room_id blank to have Lumen create a fresh room per run, or paste a
+# pre-created room id from the dashboard to reuse one.
+room_id: ""
+
+# Which agent "speaks" the system/gate lines in the room (must be one of the keys below).
+system_agent_key: "adjudicator"
+
+agents:
+  intake:
+    agent_id: "<intake-agent-uuid>"
+    api_key: "<intake-agent-api-key>"
+  evidence:
+    agent_id: "<evidence-agent-uuid>"
+    api_key: "<evidence-agent-api-key>"
+  advocate:
+    agent_id: "<advocate-agent-uuid>"
+    api_key: "<advocate-agent-api-key>"
+  opposing:
+    agent_id: "<opposing-agent-uuid>"
+    api_key: "<opposing-agent-api-key>"
+  adjudicator:
+    agent_id: "<adjudicator-a-agent-uuid>"
+    api_key: "<adjudicator-a-agent-api-key>"
+  adjudicator_b:
+    agent_id: "<adjudicator-b-agent-uuid>"
+    api_key: "<adjudicator-b-agent-api-key>"
+  verifier:
+    agent_id: "<verifier-agent-uuid>"
+    api_key: "<verifier-agent-api-key>"
+  drafter:
+    agent_id: "<drafter-agent-uuid>"
+    api_key: "<drafter-agent-api-key>"
