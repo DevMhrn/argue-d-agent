@@ -4,3 +4,9 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# python
+.venv/
+__pycache__/
+*.pyc
+band_config.yaml
