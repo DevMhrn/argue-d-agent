@@ -157,21 +157,26 @@ class BandRoom(Room):
         self._ready = True
 
     async def _deliver(self, p: Posting) -> None:
+        # Option B: ONLY real agents post to Band, so the Band room reads as a clean
+        # agent-to-agent debate. Gate/system/handoff narration (authored by "System"
+        # or a gate name, not a real agent) stays in the Lumen UI as our verification
+        # overlay. (For "everything in Band", drop this guard.)
+        if p.agent not in _NAME_TO_KEY:
+            return
         await self.ensure_ready()
         sys_key = self.cfg.system_agent_key
-        sender_key = _NAME_TO_KEY.get(p.agent, sys_key)
-        tools = self._tools.get(sender_key) or self._tools.get(sys_key)
+        sender_key = _NAME_TO_KEY[p.agent]
+        tools = self._tools.get(sender_key)
         if tools is None:
             return
-        # Band requires every message to mention a participant. Route the handoff to
-        # the coordinator, or to the drafter when the coordinator itself is speaking.
+        # Band requires every message to mention a participant. Route to the
+        # coordinator, or to the drafter when the coordinator itself is speaking.
         target_key = sys_key if sender_key != sys_key else "drafter"
         mention = self._handle_by_key.get(target_key)
         if not mention:
             mention = next((h for k, h in self._handle_by_key.items() if k != sender_key), None)
-        prefix = "" if p.kind == "message" else f"[{p.agent}] "
         try:
-            await tools.send_message(prefix + p.content, mentions=[mention] if mention else None)  # type: ignore[attr-defined]
+            await tools.send_message(p.content, mentions=[mention] if mention else None)  # type: ignore[attr-defined]
         except Exception as e:
             if os.environ.get("LUMEN_BAND_DEBUG") == "1":
                 print(f"[BandRoom] send FAILED — agent='{p.agent}' as={sender_key} mention={mention}: {repr(e)[:200]}")
