@@ -68,6 +68,7 @@ _NAME_TO_KEY = {a.name: key for key, a in AGENTS.items()}
 class BandAgentCreds:
     agent_id: str
     api_key: str
+    handle: str | None = None
 
 
 class BandConfig:
@@ -96,29 +97,35 @@ class BandRoom(Room):
         super().__init__(case_id, on_post)
         self.cfg = cfg
         self._tools: dict[str, object] = {}  # agent key -> AgentTools
+        self._handle_by_key: dict[str, str] = {}  # agent key -> "@username/agent"
         self._room_id: Optional[str] = cfg.room_id
         self._ready = False
 
+    @property
+    def room_id(self) -> Optional[str]:
+        return self._room_id
+
     async def ensure_ready(self) -> None:
-        """Create REST clients + AgentTools per agent, and a room if none given."""
+        """Create REST clients + AgentTools per agent, a room if none given, add all
+        participants, then resolve each agent's @mention handle from the room."""
         if self._ready:
             return
         from thenvoi_rest import AsyncRestClient
         from band import AgentTools
 
-        rests: dict[str, AsyncRestClient] = {}
-        for key, creds in self.cfg.agents.items():
-            rests[key] = AsyncRestClient(base_url=self.cfg.rest_url, api_key=creds.api_key)
+        rests: dict[str, AsyncRestClient] = {
+            key: AsyncRestClient(base_url=self.cfg.rest_url, api_key=creds.api_key)
+            for key, creds in self.cfg.agents.items()
+        }
 
-        # Create the room with the system agent if one wasn't pre-created.
         sys_key = self.cfg.system_agent_key
         if not self._room_id:
-            sys_tools_bootstrap = AgentTools(room_id="", rest=rests[sys_key])  # type: ignore[arg-type]
-            self._room_id = await sys_tools_bootstrap.create_chatroom()
+            self._room_id = await AgentTools(room_id="", rest=rests[sys_key]).create_chatroom()
 
-        # Bind per-agent tools to the room and add everyone as a participant.
         for key, rest in rests.items():
             self._tools[key] = AgentTools(room_id=self._room_id, rest=rest)
+
+        # Add every agent as a participant (idempotent), identified by agent_id.
         sys_tools = self._tools[sys_key]
         for key, creds in self.cfg.agents.items():
             if key == sys_key:
@@ -126,22 +133,41 @@ class BandRoom(Room):
             try:
                 await sys_tools.add_participant(creds.agent_id, "member")  # type: ignore[attr-defined]
             except Exception:
-                pass  # already a participant / idempotent
+                pass
+
+        # Resolve real handles from the room so @mentions always match a participant.
+        try:
+            parts = await sys_tools.get_participants()  # type: ignore[attr-defined]
+            by_id = {getattr(p, "id", None): getattr(p, "handle", None) for p in parts}
+            for key, creds in self.cfg.agents.items():
+                handle = by_id.get(creds.agent_id) or (creds.handle or "").lstrip("@")
+                if handle:
+                    self._handle_by_key[key] = "@" + handle
+        except Exception:
+            for key, creds in self.cfg.agents.items():
+                if creds.handle:
+                    self._handle_by_key[key] = "@" + creds.handle.lstrip("@")
+
         self._ready = True
 
     async def _deliver(self, p: Posting) -> None:
         await self.ensure_ready()
-        key = _NAME_TO_KEY.get(p.agent, self.cfg.system_agent_key)
-        tools = self._tools.get(key) or self._tools.get(self.cfg.system_agent_key)
+        sys_key = self.cfg.system_agent_key
+        sender_key = _NAME_TO_KEY.get(p.agent, sys_key)
+        tools = self._tools.get(sender_key) or self._tools.get(sys_key)
         if tools is None:
             return
-        # Tag the next-handoff naturally: gate/system lines are spoken by the system
-        # agent; agent messages are spoken as themselves.
+        # Band requires every message to mention a participant. Route the handoff to
+        # the coordinator, or to the drafter when the coordinator itself is speaking.
+        target_key = sys_key if sender_key != sys_key else "drafter"
+        mention = self._handle_by_key.get(target_key)
+        if not mention:
+            mention = next((h for k, h in self._handle_by_key.items() if k != sender_key), None)
         prefix = "" if p.kind == "message" else f"[{p.agent}] "
         try:
-            await tools.send_message(prefix + p.content)  # type: ignore[attr-defined]
+            await tools.send_message(prefix + p.content, mentions=[mention] if mention else None)  # type: ignore[attr-defined]
         except Exception:
-            pass  # never let a transport hiccup break the local run/UI
+            pass  # never let a transport hiccup break the local run / UI
 
 
 def make_room(case_id: str, on_post: Optional[PostCallback] = None) -> Room:
