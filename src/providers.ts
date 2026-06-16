@@ -40,7 +40,13 @@ export interface ChatOptions {
  * Both providers are OpenAI-compatible, so the real path is identical.
  */
 export async function chat(opts: ChatOptions): Promise<string> {
-  if (isMock()) return mockChat(opts.mockKey);
+  if (isMock()) {
+    // Optional pacing so the live web room is watchable (real mode is paced by
+    // network latency). Set LUMEN_MOCK_DELAY_MS=0 for instant CLI runs.
+    const delay = Number(process.env.LUMEN_MOCK_DELAY_MS ?? 0);
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    return mockChat(opts.mockKey);
+  }
 
   const client = await clientFor(opts.provider);
   const res = await client.chat.completions.create({
