@@ -247,6 +247,13 @@ function onResult(res) {
   $("#letter").textContent = lastLetter;
   $("#downloadLetter").onclick = (ev) => { ev.preventDefault(); downloadLetter(res); };
 
+  if (res.bandRoomId) {
+    $("#bandRoom").hidden = false;
+    const bc = $("#bandRoomId");
+    bc.textContent = res.bandRoomId;
+    bc.onclick = () => navigator.clipboard?.writeText(res.bandRoomId);
+  }
+
   if (res.auditHash) {
     $("#audit").hidden = false;
     const code = $("#auditHash");
