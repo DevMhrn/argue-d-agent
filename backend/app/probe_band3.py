@@ -1,5 +1,5 @@
 """End-to-end Band verification: run the full pipeline into a real room, then read
-the room back and count distinct message senders. Run: .venv/bin/python -m lumen_py.probe_band3
+the room back and count distinct message senders. Run: .venv/bin/python -m backend.app.probe_band3
 """
 from __future__ import annotations
 import asyncio

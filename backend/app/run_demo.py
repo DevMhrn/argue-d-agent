@@ -1,4 +1,4 @@
-"""CLI demo (parity with src/runDemo.ts): python -m lumen_py.run_demo."""
+"""CLI demo (parity with src/runDemo.ts): python -m backend.app.run_demo."""
 from __future__ import annotations
 import asyncio
 import json
@@ -12,7 +12,8 @@ from .room import LocalRoom, Posting, make_room
 from .pipeline import run_lumen
 from .types import ClaimInput, Statute
 
-DATA = Path(__file__).resolve().parent.parent / "data"
+# File is now at backend/app/run_demo.py; data/ is three parents up.
+DATA = Path(__file__).resolve().parent.parent.parent / "data"
 
 
 def _print(p: Posting) -> None:

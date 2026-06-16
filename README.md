@@ -46,19 +46,22 @@ Both providers are OpenAI-compatible, so the only change is real network calls. 
 ### Layout
 
 ```
-src/
-  config.ts        providers, models, thresholds
-  types.ts         Evidence Ledger + schemas (zod)
-  providers.ts     OpenAI-compatible client + mock switch
-  mockResponses.ts canned outputs for offline runs
-  ledger.ts        ledger / statute rendering + valid-id set
-  citationGate.ts  the hard citation check (code, not a prompt)
-  prompts.ts       agent system prompts (rules baked in)
-  agents.ts        agent definitions (role, provider, model)
-  room.ts          BAND-room stand-in
-  pipeline.ts      the structured debate + adjudication + escalation
-  runDemo.ts       CLI entry point
-data/
-  sample_claim_clean.json
-  statutes.json
+backend/           Production Python backend (FastAPI, Band SDK, ingestion, ledger lanes)
+  app/             Orchestration pipeline (agents, gates, room, server, demo)
+  schemas/         Pydantic models mirroring DB tables (cases, documents, nodes, edges, ...)
+  ingestion/       File uploads, per-format extractors, B2 storage, async queue
+  ledger/          Graph builder (stub — Gowtham's lane)
+  db/              SQL migrations + schema overview
+frontend/          Static UI (HTML/JS/CSS) served by the FastAPI app
+src/               Legacy TypeScript demo (kept for offline `pnpm demo`)
+server/            Legacy Express server
+data/              Fixtures: sample_claim_clean.json, statutes.json, cases.json
+docs/              Long-form documentation
+```
+
+The Python entry points:
+
+```bash
+python -m backend.app.run_demo      # offline mock demo
+python -m backend.app.run_server    # FastAPI server with SSE streaming
 ```

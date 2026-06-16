@@ -1,5 +1,5 @@
 # Band connection config. Copy to band_config.yaml (in repo root) and fill in.
-# Activate the real Band room with:  LUMEN_BAND=1 python -m lumen_py.run_server
+# Activate the real Band room with:  LUMEN_BAND=1 python -m backend.app.run_server
 #
 # Each agent below must be created in the Band dashboard (app.band.ai). For each,
 # Band gives an Agent ID (UUID) and an API key (shown ONCE at creation — copy it).

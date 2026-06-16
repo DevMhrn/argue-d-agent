@@ -15,7 +15,7 @@ if (process.env.LUMEN_MOCK_DELAY_MS === undefined) process.env.LUMEN_MOCK_DELAY_
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const dataDir = join(root, 'data');
-const webDir = join(root, 'web');
+const webDir = join(root, 'frontend');
 
 interface CaseMeta {
   id: string;

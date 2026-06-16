@@ -1,4 +1,4 @@
-"""Incremental live Band connection probe. Run:  .venv/bin/python -m lumen_py.probe_band
+"""Incremental live Band connection probe. Run:  .venv/bin/python -m backend.app.probe_band
 
 Validates, step by step: auth → create room → add a participant → send a message.
 Easier to debug than the full 8-agent pipeline.

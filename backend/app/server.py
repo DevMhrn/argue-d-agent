@@ -1,9 +1,9 @@
-"""FastAPI backend — serves the existing web/ frontend and streams a run over SSE.
+"""FastAPI backend — serves the static frontend and streams a run over SSE.
 
 This is the production backend (Python) that can talk to the real Band SDK. It
 exposes the same routes the frontend already calls, so the UI is unchanged.
 
-Run:  uvicorn lumen_py.server:app  (or: python -m lumen_py.run_server)
+Run:  uvicorn backend.app.server:app  (or: python -m backend.app.run_server)
 """
 from __future__ import annotations
 import asyncio
@@ -24,9 +24,10 @@ from .types import ClaimInput, Statute
 # Pace the mock so the live web room is watchable.
 os.environ.setdefault("LUMEN_MOCK_DELAY_MS", "650")
 
-ROOT = Path(__file__).resolve().parent.parent
+# File is now at backend/app/server.py; project root is three parents up.
+ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
-WEB = ROOT / "web"
+FRONTEND = ROOT / "frontend"
 
 app = FastAPI(title="Lumen — Subrogation Recovery Intelligence")
 
@@ -128,4 +129,4 @@ async def api_ingest():
 
 
 # Serve the frontend (must be mounted last so /api/* routes win).
-app.mount("/", StaticFiles(directory=str(WEB), html=True), name="static")
+app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="static")

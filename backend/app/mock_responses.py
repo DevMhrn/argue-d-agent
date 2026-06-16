@@ -116,5 +116,5 @@ MOCK: dict[str, object] = {
 
 def mock_chat(key: str) -> str:
     if key not in MOCK:
-        raise RuntimeError(f'No mock response for key "{key}". Add it to lumen_py/mock_responses.py.')
+        raise RuntimeError(f'No mock response for key "{key}". Add it to backend/app/mock_responses.py.')
     return json.dumps(MOCK[key])

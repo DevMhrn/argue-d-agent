@@ -1,5 +1,5 @@
 """Diagnostic: can NON-creator agents post to a room created by the system agent?
-Run: .venv/bin/python -m lumen_py.probe_band2
+Run: .venv/bin/python -m backend.app.probe_band2
 """
 from __future__ import annotations
 import asyncio

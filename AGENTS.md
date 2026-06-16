@@ -2,7 +2,17 @@
 
 ## Project Structure & Module Organization
 
-Lumen is an AI-assisted insurance subrogation recovery workflow. Read `docs/product-context.md` before changing product behavior, and use `docs/README.md` as the documentation map. Long-form docs live in `docs/`, including `docs/architecture.md` and `docs/project-plan.md`. The primary TypeScript ESM source lives in `src/`, with the CLI entry point at `src/runDemo.ts`, orchestration in `src/pipeline.ts`, provider/config wiring in `src/providers.ts` and `src/config.ts`, and validation gates in `src/factGate.ts`, `src/citationGate.ts`, and `src/mathGate.ts`. The Express server lives in `server/`, the static UI in `web/`, sample claims and statute fixtures in `data/`, and Python mirror/probe code in `lumen_py/`.
+Lumen is an AI-assisted insurance subrogation recovery workflow. Read `docs/product-context.md` before changing product behavior, and use `docs/README.md` as the documentation map. Long-form docs live in `docs/`, including `docs/architecture.md` and `docs/project-plan.md`.
+
+The production Python backend lives under `backend/`:
+
+- `backend/app/` — orchestration pipeline (FastAPI server, agents, gates, room, Band-SDK probes). Entry points are `python -m backend.app.run_server` and `python -m backend.app.run_demo`.
+- `backend/schemas/` — application-level Pydantic models that mirror the database tables. One file per table; `*Row` for reads, `*Create` for inserts.
+- `backend/ingestion/` — file uploads, per-format text extraction, source-anchored persistence. FastAPI router at `/api/ingest`.
+- `backend/ledger/` — graph builder (Gowtham's lane). Reads ingested documents, writes typed nodes + edges.
+- `backend/db/` — SQL migrations and schema overview README. Apply migrations into Supabase via the SQL editor.
+
+The static UI lives in `frontend/` (HTML/JS/CSS). Sample claims and statute fixtures live in `data/`. The legacy TypeScript demo stack (`src/`, `server/`) is kept at the repo root for the offline `pnpm demo` showcase — production behavior lives in `backend/`.
 
 ## Build, Test, and Development Commands
 
@@ -17,7 +27,9 @@ Keep mock mode working before changing live-provider behavior.
 
 ## Coding Style & Naming Conventions
 
-Use TypeScript with strict types for new repository code unless the change clearly belongs in `lumen_py/`. Follow the existing style: two-space indentation, single quotes, semicolons, named exports, and concise interfaces. Avoid `any`. Prefer pure helpers for gate logic and keep prompts in `src/prompts.ts`, agent definitions in `src/agents.ts`, and environment-derived settings in `src/config.ts`. Name files by responsibility, such as `ledger.ts`, `room.ts`, or `<domain>Gate.ts`.
+Production Python code in `backend/` uses Pydantic v2 models, async-first FastAPI patterns, and strict typing — avoid `Any`. Each lane owns a single folder; do not write across lane boundaries. Storage-layer Pydantic models live in `backend/schemas/`; pipeline-internal Pydantic models live in `backend/app/types.py`.
+
+The legacy TypeScript demo (`src/`, `server/`) follows the original conventions: two-space indentation, single quotes, semicolons, named exports, concise interfaces, no `any`. Pure helpers for gate logic, prompts in `src/prompts.ts`, agent definitions in `src/agents.ts`, settings in `src/config.ts`. File naming by responsibility (`ledger.ts`, `room.ts`, `<domain>Gate.ts`).
 
 ## Testing Guidelines
 
