@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-A 5-minute read for anyone opening the codebase. For *what* this project is and *why*, see [`README.md`](./README.md) and [`plan.md`](./plan.md). This document explains *how it's built*.
+A 5-minute read for anyone opening the codebase. For *what* this project is and *why*, see [`README.md`](../README.md), [`product-context.md`](./product-context.md), and [`project-plan.md`](./project-plan.md). This document explains *how it's built*.
 
 ---
 

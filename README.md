@@ -4,15 +4,15 @@
 
 Insurance companies leave an estimated **$15–20B/year** uncollected because chasing money owed to them (subrogation) is slow and manual. Lumen is a **team of AI agents** that investigates a claim, **argues both sides** to pressure-test it, and produces a ready-to-send recovery packet — with a hard rule that **no claim is allowed without citing real evidence.**
 
-> Full strategy and plan: see [`plan.md`](./plan.md).
+> Product context, architecture, and project planning docs live in [`docs/`](./docs/README.md).
 
 ## Run it now (no API keys needed)
 
 The whole agent debate runs in **mock mode** — deterministic, offline, zero keys.
 
 ```bash
-npm install
-npm run demo
+pnpm install
+pnpm demo
 ```
 
 You'll see the live Band-room transcript: facts get extracted, the Advocate and the Opposing red team **disagree**, the **Citation Gate rejects an uncited claim** and forces a fix, a neutral Adjudicator sets the fault % and recovery amount, and a large claim **escalates to a human**.
@@ -21,7 +21,7 @@ You'll see the live Band-room transcript: facts get extracted, the Advocate and 
 
 ```bash
 cp .env.example .env      # add AIMLAPI_API_KEY and FEATHERLESS_API_KEY
-npm run demo:live
+pnpm demo:live
 ```
 
 Both providers are OpenAI-compatible, so the only change is real network calls. Confirm the exact model ids in each provider's catalog and set the `MODEL_*` vars in `.env`.

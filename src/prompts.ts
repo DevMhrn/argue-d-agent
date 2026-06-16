@@ -1,6 +1,6 @@
 /**
  * System prompts for each agent. These bake in the anti-hallucination and
- * anti-collusion rules from plan.md. The two debaters have strictly opposing,
+ * anti-collusion rules from docs/project-plan.md. The two debaters have strictly opposing,
  * fixed objectives and are NEVER told to reach agreement.
  */
 
