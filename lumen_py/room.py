@@ -135,18 +135,24 @@ class BandRoom(Room):
             except Exception:
                 pass
 
-        # Resolve real handles from the room so @mentions always match a participant.
-        try:
-            parts = await sys_tools.get_participants()  # type: ignore[attr-defined]
-            by_id = {getattr(p, "id", None): getattr(p, "handle", None) for p in parts}
-            for key, creds in self.cfg.agents.items():
-                handle = by_id.get(creds.agent_id) or (creds.handle or "").lstrip("@")
-                if handle:
-                    self._handle_by_key[key] = "@" + handle
-        except Exception:
-            for key, creds in self.cfg.agents.items():
-                if creds.handle:
-                    self._handle_by_key[key] = "@" + creds.handle.lstrip("@")
+        # Band resolves @mentions against the SENDER's OWN cached participant list,
+        # so every agent must load participants once or its sends fail with
+        # "Unknown participant ... Available handles: []". Hydrate each agent's cache
+        # (after all adds) and build the key->handle map from the results.
+        by_id: dict[str, str] = {}
+        for tools in self._tools.values():
+            try:
+                parts = await tools.get_participants()  # type: ignore[attr-defined]
+                for p in parts:
+                    pid, handle = getattr(p, "id", None), getattr(p, "handle", None)
+                    if pid and handle:
+                        by_id[pid] = handle
+            except Exception:
+                pass
+        for key, creds in self.cfg.agents.items():
+            handle = by_id.get(creds.agent_id) or (creds.handle or "").lstrip("@")
+            if handle:
+                self._handle_by_key[key] = "@" + handle
 
         self._ready = True
 
@@ -166,8 +172,10 @@ class BandRoom(Room):
         prefix = "" if p.kind == "message" else f"[{p.agent}] "
         try:
             await tools.send_message(prefix + p.content, mentions=[mention] if mention else None)  # type: ignore[attr-defined]
-        except Exception:
-            pass  # never let a transport hiccup break the local run / UI
+        except Exception as e:
+            if os.environ.get("LUMEN_BAND_DEBUG") == "1":
+                print(f"[BandRoom] send FAILED — agent='{p.agent}' as={sender_key} mention={mention}: {repr(e)[:200]}")
+            # never let a transport hiccup break the local run / UI
 
 
 def make_room(case_id: str, on_post: Optional[PostCallback] = None) -> Room:
