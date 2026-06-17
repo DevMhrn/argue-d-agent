@@ -1277,4 +1277,374 @@ A few meta-observations from the conversation arc that are worth remembering, in
 
 ---
 
+## 24. Schema Evolution After Section 7
+
+The initial draft (§7) listed 8 tables. We then realized the schema needed more uniformity and one missing table. Five edits to `001_initial.sql`:
+
+### 24.1 Added the `runs` table
+
+The original design had `transcript.run_id` and `decisions.run_id` as bare UUIDs with no row to point at. This worked but lost visibility: "show me all runs for this case" required `SELECT DISTINCT run_id FROM transcript` — hacky.
+
+The `runs` table fixes it. One row per pipeline execution. Columns: `id`, `case_id` (FK), `mode` (mock/live), `status` (running/completed/failed/escalated), `triggered_by`, `started_at`, `ended_at`, `duration_ms`, `error_message`, `created_at`, `updated_at`. `transcript.run_id` and `decisions.run_id` are now real FKs to `runs(id) ON DELETE CASCADE`.
+
+**Cost to Sudharsan's lane**: ~30 lines of new code — insert a row at run start (status='running', mode='mock' or 'live'), keep the returned run_id, use it for transcript+decisions writes, then update the row at run end with `ended_at`, `duration_ms`, final `status`.
+
+**Why we deferred it initially**: I had said "skip the runs table, run_id as bare UUID is enough." User pushed back implicitly by asking for proper schema discipline. Added when the rest of the schema clean-up justified it.
+
+**Cost columns deliberately skipped**: user explicitly said no — "don't try to calculate the cost, we can add the things later on. Current focus is building the infrastructure and harness for agents so that the subrogation is done correctly." So `runs` has `duration_ms` only, no `tokens_used` or `cost_usd`. Can be added in a follow-up migration.
+
+### 24.2 Uniform `created_at` + `updated_at` on every table
+
+Originally five tables (document_pages, statutes, edges, transcript, decisions) had only `created_at` because they were "append-only." User insisted on uniformity: every table gets both columns and the `set_updated_at` trigger.
+
+Cost: 8 bytes × 2 columns × N rows. Negligible. Benefit: predictable schema, future-flexibility if any "append-only" table ever needs to support edits, easier to reason about row lifecycle.
+
+Now 9 tables × 2 timestamps = 18 timestamp columns, all on the same trigger. Verified at migration apply time: every table reports 2 timestamp columns.
+
+### 24.3 Retry tracking columns on `documents`
+
+Two new columns: `retry_count INTEGER NOT NULL DEFAULT 0` and `last_retry_at TIMESTAMPTZ NULL`. Updated by the worker on each transient failure. Lets a human inspect "this document failed because we couldn't reach B2 for ~3 minutes; it took 2 retries before succeeding."
+
+### 24.4 New columns on `cases`
+
+- `last_run_at TIMESTAMPTZ NULL` — denormalized rollup of the most recent run's timestamp. Updated by the orchestrator. UI sorts cases by recency without joining to runs. Index `cases_last_run_at_idx (last_run_at DESC NULLS LAST)`.
+- `metadata JSONB NOT NULL DEFAULT '{}'::jsonb` — free-form escape hatch for case-level fields the team adds later without schema migrations. UI hints, integration IDs, labels, etc.
+
+### 24.5 New column on `documents`
+
+`extraction_duration_ms INTEGER NULL`. Populated by the worker on extraction completion. Performance monitoring — tells us when extractions get slow enough to warrant chunked-parallel processing.
+
+### 24.6 24 `COMMENT ON TABLE` / `COMMENT ON COLUMN` statements
+
+Added at the bottom of `001_initial.sql`. Postgres exposes these in `pg_catalog`; Supabase dashboard surfaces them in the auto-generated docs. Self-documenting schema is a real quality signal for B2B.
+
+---
+
+## 25. Ingestion Pipeline Implementation
+
+The §10 contract was clear; this section captures what got built. Ten new files plus updates.
+
+### 25.1 `backend/ingestion/db.py` (new)
+
+Lazy asyncpg pool factory. Single Pool per process, created on first `get_pool()` call. Pool size min=1, max=10. `command_timeout=30s`. `statement_cache_size=0` for pgBouncer / Supavisor compatibility (more on this in §28).
+
+Self-loads `backend/.env` via `load_dotenv(dotenv_path=...)` with a path resolved from `__file__`. This was a workaround for the seed script not loading env on its own — making `db.py` self-load fixes the problem for every consumer in one place.
+
+### 25.2 `backend/ingestion/storage.py` (rewritten from stub)
+
+Real boto3 client against Backblaze B2's S3-compatible endpoint. Path-style addressing (required for B2). `signature_version='s3v4'`. 3 retries on standard mode.
+
+Four operations: `sign_upload` (pre-signed POST policy with size + mime conditions, 5-min TTL), `sign_download` (short-lived GET URL), `head` (returns None on 404), `download` (full bytes for worker).
+
+**Decision: sync boto3, not aioboto3.** boto3 calls are fast (HEAD, presign) and the worker uses sync libraries anyway (pdfplumber, mammoth). Bridging sync into the async event loop via `asyncio.to_thread(...)` at the call site. aioboto3 has fewer maintainers and more bugs.
+
+### 25.3 `backend/ingestion/queue.py` (rewritten from stub)
+
+Two roles in one file. `ExtractionQueue` (enqueue-side, used by the FastAPI commit endpoint). `redis_settings_from_env()` helper used by both the API and the worker so both speak to the same Redis. Built from `REDIS_URL` via arq's `RedisSettings.from_dsn()`.
+
+### 25.4 `backend/ingestion/repository.py` (rewritten from stub)
+
+Eight typed methods backed by asyncpg. Every method takes/returns Pydantic models from `backend/schemas/`. Highlights: `create_document` is idempotent via UniqueViolation catch (returns existing row), `insert_pages` is bulk via `unnest(...)` in one transaction, `maybe_finalize_ingestion` is the race-safe WHERE-guarded UPDATE that flips `cases.ingestion_complete=true` IFF every document has `status='extracted'`.
+
+Row mappers translate `asyncpg.Record` into typed Pydantic models. JSONB columns handled defensively (asyncpg may return them as `str` or `dict` depending on version).
+
+### 25.5 `backend/ingestion/service.py` (rewritten)
+
+Key behaviors: `commit_upload` is idempotent (returns current row without re-enqueueing if status past 'pending'). `extract_document` handles retry classification (see §26). `prepare_upload` validates MIME, creates document row, signs upload URL. `finalize_case` is the explicit override for the auto-finalize path.
+
+### 25.6 `backend/ingestion/worker.py` (new)
+
+arq's `WorkerSettings`. `on_startup(ctx)` builds the IngestService once per worker process and stashes it on `ctx['service']`. Each subsequent job reuses it. `extract_document(ctx, document_id_str)` reads `ctx['job_try']`, calls service with `job_try` + `max_tries=3`. Logs each attempt. Re-raises transient exceptions so arq retries.
+
+WorkerSettings: `max_jobs=4`, `job_timeout=300`, `max_tries=3`, `health_check_interval=60`.
+
+### 25.7 `backend/ingestion/routes.py` (factory replaced)
+
+`get_service()` was a `NotImplementedError` stub. Now wrapped in `@lru_cache(maxsize=1)` so it builds the IngestService once per FastAPI process.
+
+### 25.8 `backend/ingestion/adapters.py` (new)
+
+One function: `load_case_from_db(case_id, repo=None) → ClaimInput`. Reads cases + documents + document_pages from Supabase, reconstructs the in-memory `ClaimInput` shape the orchestration pipeline expects. This is the seam between ingestion and orchestration — lives in ingestion lane so orchestration stays ignorant of Supabase.
+
+### 25.9 `scripts/seed_synthetic.py` (new)
+
+Loads `data/sample_claim_clean.json` directly into Supabase tables. Bypasses the upload-extract flow entirely — useful for development without requiring real file uploads. Creates one `cases` row, one `documents` row + one `document_pages` row per JSON document, then flips `ingestion_complete=true`.
+
+### 25.10 The end-to-end flow walked through one document
+
+1. Frontend computes SHA-256 in-browser via `crypto.subtle.digest`.
+2. Frontend POSTs `/api/ingest/case` → `cases` row inserted, case_id returned.
+3. Frontend POSTs `/api/ingest/sign-upload` → `documents` row inserted (status='pending'), pre-signed B2 URL returned.
+4. Frontend POSTs `multipart/form-data` directly to B2. Backend not involved.
+5. Frontend POSTs `/api/ingest/commit` → backend HEAD-checks B2, updates status='uploaded', enqueues arq job.
+6. Worker picks up job. Updates status='extracting'. Downloads file. Dispatches to extractor. Bulk inserts pages. Updates status='extracted', page_count, extraction_duration_ms, ingested_at.
+7. Worker calls `maybe_finalize_ingestion`. WHERE-guarded UPDATE flips `cases.ingestion_complete=true` atomically when all documents are extracted.
+8. Gowtham's ledger lane subscribes (or polls) for `ingestion_complete=true` and starts extracting nodes + edges.
+
+---
+
+## 26. The Retry Mechanism (and the bug we caught)
+
+### 26.1 The bug in the original implementation
+
+The original `service.extract_document` had a bare catch-all that swallowed every exception, marked the document failed, and returned normally. **arq's retry machinery never fired** because we never let an exception propagate. If B2 hiccuped for 30 seconds, the document was permanently marked 'failed' on first try.
+
+### 26.2 Transient vs permanent classification
+
+Fixed by classifying via `_is_transient(exc)` helper:
+
+**Transient** (retry-worthy): `TimeoutError`, `ConnectionError`, `OSError`, `botocore.ConnectionError`/`EndpointConnectionError`/`ReadTimeoutError`, `asyncpg.PostgresConnectionError`/`InterfaceError`, `ClientError` with 5xx codes (`InternalError`, `ServiceUnavailable`, `SlowDown`, `RequestTimeout`), `BotoCoreError`.
+
+**Permanent** (don't retry): `ValueError` (unsupported MIME), `LookupError` (missing object), `ClientError` with 4xx, parser errors from pdfplumber/python-docx.
+
+### 26.3 The fixed flow
+
+On exception, classify. If transient AND not final attempt: record retry_count + last_retry_at, re-raise → arq retries with exponential backoff. If permanent OR final attempt: mark failed with `"Exhausted retries: "` prefix (for final-try transient), swallow.
+
+### 26.4 arq's role
+
+`max_tries = 3` and `job_timeout = 300` on WorkerSettings. arq's default exponential backoff (1s, 2s, 4s) handles spacing. Worker function reads `ctx['job_try']` and passes through.
+
+### 26.5 Race-safe — what happens when the worker dies mid-job
+
+`health_check_interval=60` — arq scans for "running" jobs whose worker died and re-enqueues them. Our service handles the duplicate gracefully because status='extracting' is idempotent and auto-finalize is WHERE-guarded.
+
+### 26.6 What this is NOT
+
+No dead-letter queue (DLQ). No custom backoff per error type. No circuit-breaker. All out of scope; arq defaults are fine.
+
+---
+
+## 27. Infrastructure Setup
+
+### 27.1 Python 3.14 venv at `.venv/`
+
+Created with `python3 -m venv .venv`. Already covered by `.gitignore` line 9. All ingestion dependencies installed successfully: asyncpg 0.31, boto3 1.43, botocore 1.43, arq 0.28, pdfplumber 0.11.10, python-docx 1.2, beautifulsoup4 4.15.
+
+Pip cache warnings during install were harmless — Python 3.14 is recent enough that pip's old cache format doesn't match. Installs all succeeded.
+
+### 27.2 `run.sh` — single entry point
+
+Eight sub-commands: `setup` (idempotent venv build), `server` (FastAPI), `worker` (arq), `ingest` (BOTH server and worker in one terminal with shared signal handling, Ctrl-C kills both), `demo` (offline CLI mock), `seed` (load Alex/Jordan), `typecheck` (smoke import), `clean` (wipe .venv/).
+
+Auto-creates the venv on first invocation. Colored output when stdout is a tty. Checks `backend/.env` exists for commands that need it.
+
+### 27.3 gitignore coverage verified
+
+`.venv/`, `.env`, `backend/.env`, `*.pyc`, `__pycache__/`, `band_config.yaml` all properly ignored.
+
+---
+
+## 28. The Supabase Pooler Discovery (the biggest workaround)
+
+### 28.1 Symptom
+
+`./run.sh seed` failed with `socket.gaierror: [Errno 8] nodename nor servname provided`. The hostname `db.hxgavkoaswjcfqfjjfas.supabase.co` did NOT resolve.
+
+### 28.2 Diagnostic
+
+```
+nslookup hxgavkoaswjcfqfjjfas.supabase.co    → resolves ✓ (project URL)
+nslookup db.hxgavkoaswjcfqfjjfas.supabase.co → No answer  ✗
+nslookup aws-1-ap-northeast-2.pooler.supabase.com → resolves ✓
+```
+
+### 28.3 Root cause
+
+**Supabase has retired the legacy direct DB hostname for new projects.** They've migrated to the Supavisor pooler (their open-source PgBouncer alternative). The dashboard still SHOWS the direct connection string as if it works, but the DNS record is absent.
+
+### 28.4 The fix — two pooler flavors
+
+**Session pool** (port 5432) — connections persist for the session. Supports prepared statements. Use for migrations and long-lived workers. ← OUR DEFAULT.
+
+**Transaction pool** (port 6543) — connections cycle per transaction. No prepared statements (must set `statement_cache_size=0`). Use for serverless/FaaS.
+
+DATABASE_URL set to session pool. DATABASE_URL_TRANSACTION reserved for future serverless deployment.
+
+### 28.5 The asyncpg + Supavisor `statement_cache_size=0` requirement
+
+Our `get_pool()` in `backend/ingestion/db.py` already had `statement_cache_size=0` defensively. Turned out necessary for Supavisor — without it, prepared-statement caching collides with connection cycling.
+
+### 28.6 The new username format
+
+Pooler username is `postgres.<project-ref>` (notice the dot). For us: `postgres.hxgavkoaswjcfqfjjfas`. This is Supavisor's tenant-id-in-username convention for multi-tenant pooling.
+
+### 28.7 Documented in .env.example for future projects
+
+The template now leads with explanatory comments about the retirement and the pooler distinction. Anyone joining the project later saves a debugging session.
+
+---
+
+## 29. End-to-End Verification (the 2026-06-18 apply)
+
+### 29.1 Migration applied
+
+`.venv/bin/python -m scripts.apply_migrations` succeeded:
+- 9 tables created.
+- 2 statutes seeded (CA-1431.2, CVC-21453).
+- Every table reports 2 timestamp columns (uniform).
+
+### 29.2 Synthetic case loaded
+
+`./run.sh seed` ran successfully. Alex/Jordan lives in Supabase as UUID `574d61f9-6cee-4cf7-8d49-e4f98d24be38`. All 5 documents extracted, character counts match the JSON source, ingestion_complete=true.
+
+### 29.3 Read-back integrity check
+
+Manual SELECT queries via asyncpg confirmed: case row complete, all 5 documents present with correct kind labels, all document_pages rows present with matching char_count, retry_count=0 on every document.
+
+### 29.4 What's NOT yet exercised against real infrastructure
+
+- The upload flow with real files. Seed script wrote rows directly; the `/api/ingest/*` endpoints haven't been hit against B2 yet.
+- The retry logic. Wired but no transient failure has occurred yet to prove it works.
+- The arq worker against real Redis. TCP probe passed but no real job has run.
+
+These get exercised on the first real upload test.
+
+---
+
+## 30. The Dedup Discussion (Settled — Skip Dedup)
+
+### 30.1 The proposal from lawyer-timeline-mvp
+
+That repo uses Jaccard similarity at threshold θ=0.6 to dedup events before final assembly. Cheap, deterministic, interpretable. Works for them because their output is a static timeline JSON — merging near-duplicates is benign.
+
+### 30.2 Why naive Jaccard breaks for our domain
+
+**Polarity blindness.** Example:
+- "Blake ran the red light" → {blake, ran, the, red, light}
+- "Blake stopped at the red light" → {blake, stopped, at, the, red, light}
+- Jaccard = 4/7 = 0.57. Just below threshold 0.6.
+
+If we lowered threshold to 0.55, Jaccard would merge OPPOSITE statements. Catastrophic for subrogation where the polarity IS the case.
+
+### 30.3 The citation-stability problem
+
+User caught a sharper concern: dedup AFTER ID assignment breaks Citation Gate. If agents cite F12 and dedup merges F12 into F4, the gate fails on F12 references. Post-hoc dedup is a non-starter for our architecture.
+
+### 30.4 User's final position — raw facts matter
+
+> "I think we can skip the de dup, cause giving the raw facts matter for a person rather than giving other persons some modified data, and it will build the trust."
+
+The user values raw, unmodified data over post-processing convenience. Aligns with the harness philosophy.
+
+### 30.5 The architectural answer
+
+**Use `mentioned_in` graph edges to capture corroboration.** Gowtham's ledger extraction emits ONE Fact node per atomic observation, with `mentioned_in` edges pointing to each source document that asserts it. Captures evidence strength visibly, loses no information, no merging step exists to misbehave. Uses the graph schema we already designed.
+
+Documented as a constraint in `backend/ledger/README.md`.
+
+### 30.6 Trade-offs accepted without dedup
+
+- Slightly more tokens per agent call.
+- Fault table could weight duplicates as separate facts (mitigated by the "one Fact per observation" rule in the extractor).
+- More verifier checks (negligible at scale).
+- Denser UI ledger view (cosmetic).
+- Conflicts harder to spot at scale (mitigated by the graph's explicit `contradicts` edges).
+
+All small relative to the cost of accidentally merging contradictory facts.
+
+---
+
+## 31. Lawyer-Timeline-MVP Patterns — What We Adopted, What We Skipped
+
+### 31.1 Adopted
+
+- SHA-256 content addressing for storage keys.
+- Worker process separate from API.
+- Per-format extractor registry.
+- Pre-signed POST for browser-direct uploads.
+- Conservative concurrency defaults (max_jobs=4 per worker).
+- Status tracking per document.
+
+### 31.2 Explicitly skipped
+
+- Gemini-based "extract events directly from PDFs" (we separate text extraction from fact extraction — Citation Gate depends on this).
+- Vercel AI SDK multi-provider abstraction (we have providers.py).
+- JSON-only output to filesystem (we use Postgres).
+- B2-synced extraction cache (our cache IS Postgres).
+- Three operational presets (speed/balanced/quality).
+- Aggressive compression (text-only Phase 1).
+- FFmpeg dependency (no video Phase 1).
+
+### 31.3 Deferred (might adopt later)
+
+- Parallel chunked PDF extraction (25-page chunks × 15 parallel) — premature optimization for demo size.
+- Anthropic prompt caching (90% input-token discount) — worth investigating for Adjudicator + Verifier large transcripts.
+- Per-provider asyncio.Semaphore concurrency caps — defer until we see rate-limit errors.
+
+---
+
+## 32. Currently Pending — The Critical Path
+
+After 2026-06-18 implementation completion, the ingestion lane is fully wired and verified. What's left:
+
+### 32.1 Sudharsan's lane (orchestration)
+
+- Rewrite `backend/app/server.py:api_run` to call `backend/ingestion/adapters.load_case_from_db()` instead of reading from `data/sample_claim_clean.json`.
+- Add `runs` table inserts: INSERT a row at run start, keep run_id, use for transcript+decisions writes, UPDATE at run end.
+- Update `cases.last_run_at = NOW()` after each run.
+- All schemas (`backend/schemas/run.py`, etc.) ready.
+
+### 32.2 Gowtham's lane (ledger)
+
+- Implement `backend/ledger/builder.py` — the LLM-based extraction agent.
+- Read documents + document_pages + statutes for `ingestion_complete=true` cases.
+- Emit nodes + edges via `backend/ledger/repository.py`.
+- Rule: ONE Fact node per atomic observation, with `mentioned_in` edges for each source.
+- Flip `cases.ledger_complete=true` when done.
+
+### 32.3 Frontend (owner TBD)
+
+- Upload UI for the `/api/ingest/case` → `/sign-upload` → B2 → `/commit` → polling flow.
+- Compute SHA-256 in-browser via `crypto.subtle.digest`.
+- Display per-document status from the polling endpoint.
+
+### 32.4 Three test cases
+
+- Clean win (Alex/Jordan) — already seeded.
+- Disputed (~50/50 split) — forces Consensus Gate to escalate.
+- Loser (our insured was at fault) — credibility moat in Q&A.
+
+### 32.5 Deployment
+
+- Backend on Railway/Render (long-running container).
+- Frontend on Vercel.
+- All pointed at same Supabase + B2 + Upstash.
+- Public URL for submission.
+
+### 32.6 Demo video + pitch deck
+
+- 3-minute video per `docs/project-plan.md` §9.
+- 8-slide pitch deck per `docs/project-plan.md` §10.
+
+### 32.7 B2 bucket verification
+
+- Confirm `lumen-case-files` exists in B2 console.
+- Verify region matches `us-east-005` (or update .env).
+- Test first real upload with a small native PDF.
+
+---
+
+## 33. Patterns Reinforced Through This Implementation
+
+**"Ask before architectural changes" caught the dedup polarity problem.** I had proposed Jaccard dedup as a Tier-2 enhancement. User asked clarifying questions. Walking through their concern surfaced the polarity blindness issue, which would have shipped silently if I'd just executed. **Verdict: the rule paid off again.**
+
+**Stub-then-wire pattern paid off.** Schema first → application Pydantic models → typed repository methods → service orchestration → routes → worker → seed. Each layer was verified before the next was built. Bugs got caught early (the load_dotenv issue surfaced cleanly because each layer is small).
+
+**The Supabase pooler workaround is documented for future projects.** The `.env.example` now leads with a paragraph explaining the retirement of `db.<project-ref>.supabase.co`. Saves future debugging.
+
+**Asyncio bridging via `to_thread` keeps the codebase honest.** boto3 and pdfplumber are sync. asyncpg and arq are async. We bridge at the call site with `await asyncio.to_thread(sync_fn, ...)` rather than introducing async wrappers for everything. Simpler, more stable.
+
+**The harness gates kept their universality through every change.** Citation Gate, Fact Gate, Math Gate, Source-Alignment Verifier, Letter Reconciliation — all unchanged. Schema additions, retry logic, pooler workaround, etc. all happened around the harness, not through it. Good architectural separation.
+
+---
+
+## 34. Iteration Log
+
+**2026-06-17** — Initial draft. 23 sections + 24 conversation phases.
+
+**2026-06-18** — Major implementation pass. Schema evolved (runs table, uniform timestamps, retry tracking, comments). Ingestion module fully wired (db, storage, queue, repository, service, worker, adapters, routes). Retry mechanism shipped (transient/permanent classification, exponential backoff, retry_count tracking). Infrastructure setup (Python 3.14 venv, requirements.txt pinned, run.sh with 8 sub-commands). Supabase Supavisor pooler discovered and adopted (db.<ref>.supabase.co was retired; using session pool at port 5432 for migrations + workers, transaction pool at 6543 reserved for future serverless). Migrations applied to live Supabase project. Synthetic Alex/Jordan case seeded (UUID 574d61f9-6cee-4cf7-8d49-e4f98d24be38). Dedup decision settled: skip dedup entirely, use `mentioned_in` graph edges for corroboration. Lawyer-timeline-mvp patterns audited — SHA-256 cache + worker-separation + extractor-registry adopted; Gemini-conflated extraction + JSON output + cache-sync + presets explicitly skipped.
+
+---
+
 *End of context dump. This document is canonical for reasoning, the code is canonical for behavior. If you find a contradiction, update both. The cost of a stale handoff doc is high; the cost of an out-of-date reasoning chain is higher.*
