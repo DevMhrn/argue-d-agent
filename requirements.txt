@@ -1,4 +1,6 @@
 # Python backend (Lumen). Install:  uv pip install -r requirements.txt
+
+# --- Core: orchestration pipeline + Band SDK + FastAPI server (runs the demo) ---
 band-sdk>=1.0.0
 fastapi>=0.115
 uvicorn[standard]>=0.30
@@ -6,3 +8,14 @@ openai>=1.40
 pydantic>=2.7
 python-dotenv>=1.0
 pyyaml>=6.0
+
+# --- Ingestion lane: document text extractors (backend/ingestion/extractors) ---
+pdfplumber>=0.11      # native PDF text extraction
+python-docx>=1.1      # .docx extraction (imported as `docx`)
+beautifulsoup4>=4.12  # HTML extraction (imported as `bs4`)
+
+# --- Ingestion infra (uncomment once wired; see backend/README.md) ---
+# supabase>=2.5        # documents / pages persistence
+# b2sdk>=2.5           # Backblaze B2 object storage
+# arq>=0.26            # async extraction queue
+# redis>=5.0           # arq broker
