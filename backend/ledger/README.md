@@ -30,15 +30,41 @@ The application-level Pydantic models for `nodes` and `edges` live in `backend/s
 2. **`node_id` must be unique within a case.** Stick to the `F1, F2, …` and `P1, P2, …` conventions so the orchestration's Citation Gate works unchanged.
 3. **Edge types must be from the enumerated set** in the schema. Adding new types means a follow-up SQL migration and a Pydantic literal update.
 
-## Module layout (TBD)
-
-This directory is the placeholder for the extraction agent + graph builder. Suggested layout when implementation lands:
+## Module layout (implemented, offline-first)
 
 ```
 backend/ledger/
-├── __init__.py
-├── builder.py      # Reads documents → produces nodes/edges via LLM extraction
-├── prompts.py      # Extraction-agent system prompts
-├── repository.py   # Typed Supabase writes (uses backend/schemas/node, edge)
+├── graph.py        # LedgerNode/LedgerEdge/LedgerGraph + validate_graph() + render_graph()
+├── builder.py      # build_ledger(claim, statutes) → graph; + graph_to_evidence_ledger()
+├── prompts.py      # EXTRACTION_PROMPT for the live extraction agent
+├── mock_graphs.py  # deterministic graphs for the sample cases (offline, no keys)
+├── repository.py   # Supabase write seam: to_node_creates/to_edge_creates, dry_run(), LedgerRepository
+├── build_demo.py   # CLI: build + validate + inspect a graph offline
 └── README.md       # this file
 ```
+
+### Run it offline (no keys, no DB)
+
+```bash
+python -m backend.ledger.build_demo          # clean case
+python -m backend.ledger.build_demo loser    # loser case
+```
+
+Prints the typed graph, runs the Fact-anchor/integrity check (same substring rule as
+the downstream Fact Gate), shows the row counts it would persist, and the
+`EvidenceLedger` projection the debate lane consumes.
+
+### How it works
+
+- **Offline/mock** (`is_mock()` — no provider keys): `build_ledger` returns a
+  hand-verified graph from `mock_graphs.py` whose Fact quotes are exact substrings of
+  the sample documents. Runs today with zero infra.
+- **Live**: `build_ledger` runs the extraction agent (Featherless) over the document
+  text, parses the typed graph, and **prunes any Fact whose verbatim_quote doesn't
+  anchor** — so the graph leaving this lane always passes the Fact Gate.
+- **Persist**: `LedgerRepository.from_env()` writes to Supabase (nodes first to obtain
+  UUIDs, then edges; then `mark_ledger_complete`). `dry_run(graph)` builds the exact
+  `NodeCreate`/`EdgeCreate` rows with placeholder UUIDs for inspection without a DB.
+- **Handoff**: `graph_to_evidence_ledger(graph)` projects Fact nodes into the
+  `EvidenceLedger` shape the orchestration consumes — the seam to run the debate on a
+  real graph instead of the mock evidence step.
