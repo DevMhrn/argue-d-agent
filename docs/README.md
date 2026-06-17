@@ -4,6 +4,8 @@ Use this directory for durable project context, design notes, architecture recor
 
 ## Core Docs
 
+- [**Master Context & Decision Log**](./CONTEXT.md) - **start here.** The whole journey in raw form: vision, every decision and *why* (incl. roads rejected), competitive + reference-repo research, the harness, the schema, the pipeline + edge cases, learnings, current status, future scope. Built to recover full context fast.
+- [Ingestion Start Context](./ingestion-start-context.md) - ingestion-lane deep-dive + earlier session history.
 - [Product Context](./product-context.md) - the plain-English subrogation story, Lumen's six-agent model, safety rules, and ownership boundary.
 - [Architecture](./architecture.md) - current orchestration flow, room behavior, gates, and package assembly.
 - [Project Plan](./project-plan.md) - hackathon strategy, milestones, and broader delivery plan.
