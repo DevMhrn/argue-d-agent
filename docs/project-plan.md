@@ -12,7 +12,7 @@
 | Event | Band of Agents Hackathon — lablab.ai. Free, fully online, global. |
 | Dates | June 12 → **June 19, 2026**. Hard deadline **June 19 @ 8:30 PM IST**. |
 | Our target | Submit by **end of June 18** (a day early). Don't trust the deadline. |
-| Prize pool | $10,000+ overall, plus two separate sponsor prizes (AI/ML API, Featherless AI). |
+| Prize pool | $10,000+ overall. (We target the main Band prize; the AI/ML API + Featherless partner prizes are out — those APIs were unavailable to us.) |
 | **The hard rule** | App must show **3+ unique specialized agents actively talking to each other.** Must go beyond a chatbot, a single agent, or a straight A→B→C script. |
 | What to submit | (1) a **working prototype people can use online** (deployed), (2) a **~3-min demo video**, (3) a **pitch deck**. Original + MIT-licensed. |
 
@@ -48,28 +48,22 @@ Work that takes a small team ~2 weeks comes out in minutes. The human still sign
 
 ## 5. The agent team
 
-> Built so it naturally wins **both** sponsor prizes: frontier models (via AI/ML API) do the judgment; open-source models (via Featherless) do the high-volume, privacy-sensitive grunt work. **Pitch line:** *"Frontier intelligence where it matters. Open-source speed where volume matters. Band is what lets them collaborate."*
+> Built across **three independent model families** so the adversarial parts are genuinely independent — not one model arguing with itself. **Pitch line:** *"The Advocate (Claude) and the Opposing red team (GPT) argue; two adjudicators on different families (Claude vs Gemini) must agree. Band is what lets them collaborate."*
 
 ### Core team (must-have for the demo)
 
 | # | Agent | Job | Provider / model | Why |
 |---|---|---|---|---|
-| 1 | **Intake Parser** | Pull who/what/where/when from the First Notice of Loss | Featherless (Llama 3) | High volume, structured extraction — OSS shines |
-| 2 | **Evidence Aggregator** | OCR + classify police report, photos, invoices → build the **Evidence Ledger** | Featherless (Qwen + OSS vision) | Specialized, privacy-sensitive work |
-| 3 | **Liability Advocate (our side)** | Build the strongest case that the other driver was at fault | AI/ML API (Claude Opus) | Legal reasoning core |
-| 4 | **Opposing-Carrier Red-Team** | Attack our case, find every hole — like the other insurer would | AI/ML API (different frontier model) | A genuine adversary, not a negotiator |
-| 5 | **Adjudicator (neutral referee)** | Weigh both sides, set fault % and recovery amount — **showing its math** | AI/ML API (frontier reasoning) | Must be neutral; debaters don't decide |
-| 6 | **Demand Letter Drafter** | Compose the formal demand letter | AI/ML API (Claude Sonnet) | Drafting quality matters |
+| 1 | **Intake Parser** | Pull who/what/where/when from the First Notice of Loss | OpenAI (gpt-4o-mini) | Fast, cheap structured extraction |
+| 2 | **Evidence Aggregator** | OCR + classify police report, photos, invoices → build the **Evidence Ledger** | Google (gemini-2.5-flash) | Fast, long-context extraction |
+| 3 | **Liability Advocate (our side)** | Build the strongest case that the other driver was at fault | Anthropic (claude-opus-4-8) | Legal reasoning core |
+| 4 | **Opposing-Carrier Red-Team** | Attack our case, find every hole — like the other insurer would | OpenAI (gpt-4o) | A genuine adversary on a *different* family |
+| 5 | **Adjudicator A (neutral referee)** | Weigh both sides, set fault % and recovery amount — **showing its math** | Anthropic (claude-opus-4-8) | Must be neutral; debaters don't decide |
+| 6 | **Adjudicator B (independent)** | Re-decide on a different family; disagreement forces human review | Google (gemini-2.5-pro) | Cross-family consensus check |
+| 7 | **Source-Alignment Verifier** | Audit every cited claim actually follows from its source fact | Google (gemini-2.5-flash) | Catches "cited but misrepresented" |
+| 8 | **Demand Letter Drafter** | Compose the formal demand letter | Anthropic (claude-sonnet-4-6) | Drafting quality matters |
 
-### Stretch agents (add if time allows, days 4–5)
-
-| # | Agent | Job | Provider |
-|---|---|---|---|
-| 7 | **Recovery Valuator** | Deterministic dollar math: damages × our-fault-share + interest + costs | Featherless (small math OSS) |
-| 8 | **Policy Interpreter** | Read both policies, find coverage hooks | AI/ML API (Sonnet) |
-| 9 | **Citation Verifier** | Audits the transcript: every cited fact/statute actually exists | Featherless (OSS) |
-
-> Provider balance: at least **3 Featherless (OSS)** agents + **3 AI/ML API (frontier)** agents → a real story for each sponsor prize.
+> Family balance: Anthropic powers the Advocate + Adjudicator A + Drafter; Google powers Evidence + Adjudicator B + Verifier; OpenAI powers Intake + Opposing. The Advocate-vs-Opposing debate and the A-vs-B consensus each span two different families — that's what makes the anti-collusion claim real.
 
 ---
 
@@ -105,7 +99,7 @@ Author 3 test cases with known answers — and **make one a loser** (our side ge
 
 - **Frontend (our clarity win, plays to a full-stack team):** web app with 3 panels — left: upload / "Load sample claim"; center: the live Band room as a color-coded chat where you *watch* agents argue and hand off; right: live "Decision State" panel (current fault %, recovery $, confidence, escalation flag + human Approve/Reject). Stream with websockets/SSE.
 - **Backend:** orchestrates the agents (each = role + prompt + model), all registered in a Band room; relays the room to the UI; enforces the citation gate + turn protocol.
-- **Models:** AI/ML API (frontier) + Featherless (OSS).
+- **Models:** Anthropic (Claude) + Google (Gemini) + OpenAI (GPT), all via OpenAI-compatible endpoints.
 - **Deploy:** frontend on Vercel, backend on Railway/Render/Fly. **"Load sample claim" button is mandatory** so judges try it in one click.
 - **Data:** synthetic claims built on **public NHTSA crash-report formats** + real public state negligence statutes. No real personal data.
 
@@ -115,9 +109,9 @@ Author 3 test cases with known answers — and **make one a loser** (our side ge
 
 | Day | Goal |
 |---|---|
-| **Day 1 — Sat 6/13** | Accounts: Band, AI/ML API, Featherless. **Read Band's quickstart end-to-end.** Repo scaffold + MIT license. Goal: 2 agents talking in a Band room about a sample claim. Lock the ONE sample case for the demo. |
-| **Day 2 — Sun 6/14** | Intake Parser + Evidence Aggregator (Featherless) → produce the structured Evidence Ledger from synthetic docs. |
-| **Day 3 — Mon 6/15** | Liability Advocate + Opposing Red-Team + Adjudicator (AI/ML API). Build the citation gate + turn protocol. Load 1–2 real state statutes. |
+| **Day 1 — Sat 6/13** | Accounts: Band + model keys (Claude / Gemini / OpenAI). **Read Band's quickstart end-to-end.** Repo scaffold + MIT license. Goal: 2 agents talking in a Band room about a sample claim. Lock the ONE sample case for the demo. |
+| **Day 2 — Sun 6/14** | Intake Parser + Evidence Aggregator (GPT / Gemini) → produce the structured Evidence Ledger from synthetic docs. |
+| **Day 3 — Mon 6/15** | Liability Advocate (Claude) + Opposing Red-Team (GPT) + Adjudicators (Claude / Gemini). Build the citation gate + turn protocol. Load 1–2 real state statutes. |
 | **Day 4 — Tue 6/16** | Demand Letter Drafter + escalation gate. Add stretch agents if ahead. Polish the Band handoffs. |
 | **Day 5 — Wed 6/17** | Frontend 3-panel UI + deploy live. End-to-end run on 3 cases (clean win, disputed, loser). **Cache the demo run** so a flaky API can't break the video. |
 | **Day 6 — Thu 6/18** | Record the 3-min video, finish the deck + README, confirm the live link + sample button work for a stranger. **Submit by Thursday evening.** |
@@ -131,7 +125,7 @@ Author 3 test cases with known answers — and **make one a loser** (our side ge
 2. **0:20–0:35 Idea** — a team of AI specialists that argue both sides and produce a ready-to-send recovery package, coordinated by Band.
 3. **0:35–2:20 Live run** — load the sample claim; narrate the room: facts extracted → Advocate vs Opposing **disagree** → Adjudicator decides with shown math → big claim **escalates** → click Approve. Point at Band doing handoffs and enforcing "no claim without evidence."
 4. **2:20–2:50 Why it's special** — different model per specialist, two providers, real disagreement, and it tells you when *not* to pursue.
-5. **2:50–3:00 Close** — the dollar recovered, "built on Band, AI/ML API, and Featherless."
+5. **2:50–3:00 Close** — the dollar recovered, "coordinated on Band, with agents across Claude, Gemini, and GPT."
 
 ## 10. Pitch deck (8 slides)
 
@@ -156,4 +150,4 @@ Title → Problem ($15–20B) → Why one AI fails here → The team (agent diag
 - **Original** — insurance subrogation is untouched, by both the contest field and the broader AI-startup landscape.
 - **Real value** — a concrete dollar amount on screen; touches every property/auto insurer.
 - **Genuinely multi-agent** — separate departments + legal privilege make multiple agents *required*, not decorative.
-- **Both sponsor prizes** — the architecture uses each provider for what it's best at, with a one-sentence story judges can repeat.
+- **Genuinely independent agents** — the debate and the dual-adjudicator consensus span three different model families (Claude / Gemini / GPT), so "diverse models resist collusion" is real, not cosmetic.

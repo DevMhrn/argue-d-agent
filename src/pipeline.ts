@@ -40,12 +40,12 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
   room.post(SYS, 250, 'system',
     `Claim ${claim.caseId} opened. Jurisdiction ${claim.jurisdiction}. Documented damages $${claim.damagesUsd.toLocaleString()}.`);
 
-  // 1) Intake (Featherless) ----------------------------------------------------
+  // 1) Intake (OpenAI) ----------------------------------------------------------
   const intake = IntakeSchema.parse(safeJson(await ask(AGENTS.intake, `CLAIM DOCUMENTS:\n${docsText}`, 'intake')));
   room.post(AGENTS.intake.name, AGENTS.intake.color, 'message',
     `${intake.parties.insured} vs ${intake.parties.otherParty} | ${intake.date} | ${intake.location} | damages $${intake.damagesUsd.toLocaleString()}`);
 
-  // 2) Evidence Ledger (Featherless) -------------------------------------------
+  // 2) Evidence Ledger (Gemini) ------------------------------------------------
   const ledger = EvidenceLedgerSchema.parse(safeJson(await ask(AGENTS.evidence, `Build the evidence ledger from:\n${docsText}`, 'ledger')));
   room.post(AGENTS.evidence.name, AGENTS.evidence.color, 'message',
     `Evidence Ledger — ${ledger.facts.length} facts:\n` + ledger.facts.map((f) => `   [${f.id}] ${f.statement}  (${f.source})`).join('\n'));

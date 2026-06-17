@@ -44,10 +44,9 @@ If you're trying to make an architectural change, read §6 first. We tested a lo
 3. **Business Value** — solves a real enterprise workflow problem.
 4. **Originality** — creative multi-agent collaboration; agents discover each other, divide work, review outputs, disagree, escalate.
 
-**Partner-prize credits** (claim early):
+**Credits / access:**
 - **Band Pro** — 100% off for 1 month with promo code `BANDHACK26`.
-- **AI/ML API** — $10 credit/person, valid until end of hackathon, redeemed via lablab.ai coupon.
-- **Featherless AI** — $25 credit/participant, valid 1 month, promo code `BOA26`.
+- ~~AI/ML API ($10/person) and Featherless ($25/participant)~~ — **no longer used** (dropped 2026-06-18; unavailable to us). Agents now run on our own Anthropic / Google / OpenAI keys.
 
 ---
 
@@ -93,20 +92,20 @@ What takes a recovery team about 2 weeks comes out in minutes. The human still s
 
 ### The agent team (current state)
 
-Eight agents wired into the pipeline today. All run on either AI/ML API (frontier) or Featherless AI (open-source) — deliberately split to maximize both sponsor-prize stories.
+Eight agents wired into the pipeline today, across **three model families** (Anthropic / Google / OpenAI), all via OpenAI-compatible endpoints. (Note: AI/ML API + Featherless were dropped on 2026-06-18 — unavailable to us; the partner prizes are no longer targeted. Sections below that still mention them are historical.)
 
 | # | Agent | Provider | Job |
 |---|-------|----------|-----|
-| 1 | Intake Parser | Featherless (OSS — Llama 3.1 8B) | Extract incident facts from the First Notice of Loss |
-| 2 | Evidence Aggregator | Featherless (OSS — Qwen 2.5 72B) | Build the structured Evidence Ledger from documents |
-| 3 | Liability Advocate | AI/ML API (Claude Opus) | Build the strongest case the other driver was at fault |
-| 4 | Opposing-Carrier Red Team | AI/ML API (GPT-4o) | Attack our case the way the other insurer would |
-| 5 | Adjudicator A | AI/ML API (Claude 3.5 Sonnet) | Neutrally set fault % + recovery (frontier reasoning) |
-| 6 | Adjudicator B | Featherless (Llama 3.1 70B) | Second independent adjudicator (consensus check) |
-| 7 | Source-Alignment Verifier | Featherless (Qwen 2.5 72B) | Audit every cited claim against its source fact |
-| 8 | Demand Letter Drafter | AI/ML API (Claude 3.5 Sonnet) | Compose the formal demand letter |
+| 1 | Intake Parser | OpenAI (gpt-4o-mini) | Extract incident facts from the First Notice of Loss |
+| 2 | Evidence Aggregator | Google (gemini-2.5-flash) | Build the structured Evidence Ledger from documents |
+| 3 | Liability Advocate | Anthropic (claude-opus-4-8) | Build the strongest case the other driver was at fault |
+| 4 | Opposing-Carrier Red Team | OpenAI (gpt-4o) | Attack our case the way the other insurer would |
+| 5 | Adjudicator A | Anthropic (claude-opus-4-8) | Neutrally set fault % + recovery |
+| 6 | Adjudicator B | Google (gemini-2.5-pro) | Independent adjudicator on a different family (consensus check) |
+| 7 | Source-Alignment Verifier | Google (gemini-2.5-flash) | Audit every cited claim against its source fact |
+| 8 | Demand Letter Drafter | Anthropic (claude-sonnet-4-6) | Compose the formal demand letter |
 
-**Provider mix is currently 4 Featherless + 4 AI/ML API** — even split, deliberate, so both sponsor prizes have a strong story.
+**The Advocate (Claude) debates the Opposing red team (GPT); Adjudicator A (Claude) is checked against Adjudicator B (Gemini)** — different families, so the debate and the consensus check are genuinely independent, not one model arguing with itself.
 
 ### Escalation rules
 
@@ -410,7 +409,7 @@ Band-AI-Hack/
 │   │   ├── gates.py                  #   Citation, Fact, Math gates (code-enforced)
 │   │   ├── verifier.py               #   Source-Alignment Verifier helper
 │   │   ├── room.py                   #   Band-room wrapper (LocalRoom + BandRoom)
-│   │   ├── providers.py              #   AI/ML API + Featherless clients + mock switch
+│   │   ├── providers.py              #   Anthropic / Gemini / OpenAI clients + mock switch
 │   │   ├── mock_responses.py         #   Deterministic offline outputs
 │   │   ├── config.py                 #   Models, providers, thresholds
 │   │   ├── types.py                  #   Pipeline-internal Pydantic models
@@ -553,7 +552,7 @@ When credentials arrive, replace the `NotImplementedError` stubs in:
 
 In scope: native PDF, DOCX, HTML, plain text.
 
-Deferred (phase 2): JPG/PNG (vision via AI/ML API), audio (Whisper).
+Deferred (phase 2): JPG/PNG (vision via Gemini or Claude), audio (Whisper via OpenAI).
 
 Explicitly excluded: scanned PDFs (OCR is a rabbit hole), old DOC (LibreOffice conversion), video, Excel.
 
@@ -768,7 +767,7 @@ Insurance claim **denial appeals** (not subrogation). Five agents: Coordinator (
 Explicitly deferred — note in pitch deck "next steps" slide, do not build:
 
 - **OCR for scanned PDFs.** Real claim files have scanned police reports. Tesseract (free, decent) or AWS Textract / Google Document AI (paid, accurate). Out of scope for demo; mention as roadmap.
-- **Image and audio ingestion.** Photos via vision model (GPT-4V or Claude with vision through AI/ML API), audio via Whisper. Mentioned in earlier discussion but punted to phase 2.
+- **Image and audio ingestion.** Photos via a vision model (Gemini or Claude), audio via Whisper (OpenAI). Mentioned in earlier discussion but punted to phase 2.
 - **Video ingestion.** Body-cam footage, dash-cam. Out of scope.
 - **Old DOC format.** LibreOffice CLI conversion. Out of scope.
 - **Excel ingestion.** Sheetjs/xlsx with structured table extraction. Punted.
@@ -812,7 +811,7 @@ To submit Thursday June 18 evening (one day early), we need:
 3. ☐ **Pitch deck** — 8 slides per `docs/project-plan.md` §10.
 4. ☐ **GitHub repo** — public, MIT-licensed, README explains how to run.
 5. ☐ **At least 3 test cases** — clean win (Alex/Jordan), disputed, loser. The loser case is the credibility moat.
-6. ☐ **Both sponsor prize claims** — AI/ML API and Featherless prominently featured in the architecture and pitch.
+6. ☑ **Multi-family independence** — the debate and dual-adjudicator consensus span Claude / Gemini / GPT (genuinely independent models). (Partner prizes no longer targeted — AI/ML API + Featherless dropped.)
 
 ---
 
@@ -829,7 +828,7 @@ To submit Thursday June 18 evening (one day early), we need:
 - **Fact Gate** — code that verifies each ledger fact's `verbatim_quote` is a contiguous substring of its source document. Anchors the ledger to real text.
 - **Math Gate** — code that verifies the Adjudicator's stated percentage is consistent (within ±10pp) with its own fault table. Catches LLM arithmetic drift.
 - **Consensus Gate** — code that checks two adjudicators' percentages agree within 10pp. Escalates on disagreement.
-- **Source-Alignment Verifier** — agent (Featherless OSS) that audits whether every cited claim actually follows from its cited fact. Catches "cited but misrepresented" — the biggest semantic hole.
+- **Source-Alignment Verifier** — agent (Gemini) that audits whether every cited claim actually follows from its cited fact. Catches "cited but misrepresented" — the biggest semantic hole.
 - **Letter Reconciliation** — code that verifies the drafted demand letter contains the decided fault % and dollar amount. Catches dashboard-vs-mailbox drift.
 - **Recovery Packet** — the final artifact: fault analysis + recovery dollar amount + demand letter + transcript + audit hash.
 - **Ledger lane** — Gowtham's responsibility. Builds the `nodes` + `edges` graph from extracted text.
@@ -1244,8 +1243,8 @@ In-scope for v1:
 - Plain text
 
 Deferred to phase 2:
-- JPG/PNG via vision model (GPT-4V or Claude with vision through AI/ML API)
-- Audio via Whisper (OpenAI Whisper API or Featherless-hosted OSS Whisper)
+- JPG/PNG via a vision model (Gemini or Claude)
+- Audio via Whisper (OpenAI)
 
 Explicitly out of scope:
 - Scanned PDFs (OCR is a rabbit hole — Tesseract is decent but slow; Textract/Document AI are paid and need credentials)

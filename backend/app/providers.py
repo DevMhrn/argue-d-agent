@@ -1,8 +1,8 @@
 """Model provider client + mock switch (mirrors src/providers.ts).
 
-Both AI/ML API and Featherless are OpenAI-compatible, so the live path is one
-AsyncOpenAI client per provider. Mock mode returns deterministic canned content
-so the whole pipeline runs with no keys and no network.
+Anthropic, Google (Gemini), and OpenAI are all reached via their OpenAI-compatible
+chat endpoints, so the live path is one AsyncOpenAI client per provider. Mock mode
+returns deterministic canned content so the whole pipeline runs with no keys/network.
 """
 from __future__ import annotations
 import asyncio
