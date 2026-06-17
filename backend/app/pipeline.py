@@ -8,11 +8,12 @@ import re
 from dataclasses import dataclass
 
 from .agents import AGENTS, AgentDef
-from .config import ESCALATE_USD
+from .config import ESCALATE_USD, PURSUE_MIN_USD, PURSUE_MIN_FAULT_PCT
 from .providers import chat
 from .gates import check_points, check_ledger_anchoring, check_adjudicator_math, MathGateResult
 from .verifier import collect_verifier_tasks, summarize_alignment, VerifierTask
 from .ledger import valid_citation_ids, render_ledger, render_statutes
+from .mock_responses import set_mock_case
 from .room import Room
 from .types import (
     ClaimInput, Statute, Point, Points, Rebuttal, Decision, FinalDecision,
@@ -175,6 +176,8 @@ def _reconcile_letter(letter: str, decision: FinalDecision) -> list[str]:
 
 
 async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> LumenResult:
+    # Select this case's canned outputs for mock mode (no-op in live mode).
+    set_mock_case(claim.caseId)
     docs_text = "\n\n".join(f"### {d.name} ({d.kind})\n{d.text}" for d in claim.documents)
 
     await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
@@ -308,6 +311,23 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> L
     if verifier_contradicted > 0:
         reasons.append(f"source-alignment verifier flagged {verifier_contradicted} contradicted claim(s)")
 
+    # Viability: is pursuing this recovery worth the cost? If not, recommend DECLINE
+    # (close the file) — proving Lumen knows when NOT to chase, not just how to win.
+    pursue = recovery_usd >= PURSUE_MIN_USD and canonical.otherDriverFaultPct >= PURSUE_MIN_FAULT_PCT
+    decline_reason = None
+    if not pursue:
+        bits: list[str] = []
+        if recovery_usd < PURSUE_MIN_USD:
+            bits.append(f"recovery {_usd(recovery_usd)} below the {_usd(PURSUE_MIN_USD)} pursuit threshold")
+        if canonical.otherDriverFaultPct < PURSUE_MIN_FAULT_PCT:
+            bits.append(f"other-driver fault {canonical.otherDriverFaultPct}% below the {int(PURSUE_MIN_FAULT_PCT)}% viability floor")
+        decline_reason = "; ".join(bits)
+        outcome = "decline"
+    elif reasons:
+        outcome = "escalate"
+    else:
+        outcome = "pursue"
+
     final = FinalDecision(
         **canonical.model_dump(),
         recoveryUsd=recovery_usd,
@@ -317,9 +337,14 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> L
         secondary=consensus.secondary,
         consensus=consensus.consensus_type,
         consensusDelta=consensus.consensus_delta,
+        outcome=outcome,
+        pursue=pursue,
+        declineReason=decline_reason,
     )
 
-    if final.escalate:
+    if outcome == "decline":
+        await room.post(SYS, 196, "decision", f"RECOMMENDATION: DO NOT PURSUE — {decline_reason}. Recommend closing the file.")
+    elif final.escalate:
         await room.post(SYS, 196, "decision", f"ESCALATED TO HUMAN ADJUSTER — {'; '.join(reasons)}. Awaiting Approve/Reject.")
 
     # 8) Demand letter

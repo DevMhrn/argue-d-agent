@@ -5,5 +5,12 @@
     "summary": "Insured struck by a driver who ran a red light. Strong recovery prospect.",
     "file": "sample_claim_clean.json",
     "mockSupported": true
+  },
+  {
+    "id": "loser",
+    "title": "Rear-end at a red light — our insured at fault",
+    "summary": "Our insured rear-ended a stopped vehicle. Weak liability — the system should decline to pursue.",
+    "file": "sample_claim_loser.json",
+    "mockSupported": true
   }
 ]

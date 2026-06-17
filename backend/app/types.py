@@ -95,6 +95,11 @@ class FinalDecision(Decision):
     secondary: Optional[Decision] = None
     consensus: Literal["agreement", "disagreement", "single", "none"]
     consensusDelta: float
+    # Viability recommendation: 'pursue' worth chasing, 'escalate' needs a human,
+    # 'decline' not worth the cost (close the file).
+    outcome: Literal["pursue", "escalate", "decline"] = "pursue"
+    pursue: bool = True
+    declineReason: Optional[str] = None
 
 
 class AlignmentResult(BaseModel):

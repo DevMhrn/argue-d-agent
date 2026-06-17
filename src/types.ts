@@ -86,6 +86,10 @@ export interface FinalDecision extends Decision {
   /** How A and B related on the percentage. */
   consensus: 'agreement' | 'disagreement' | 'single' | 'none';
   consensusDelta: number;
+  /** Viability recommendation: pursue / escalate to human / decline (close file). */
+  outcome: 'pursue' | 'escalate' | 'decline';
+  pursue: boolean;
+  declineReason?: string;
 }
 
 /** A single (claim, fact-citation) pair the Source-Alignment Verifier audits. */

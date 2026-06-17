@@ -45,3 +45,8 @@ MODELS = {
 }
 
 ESCALATE_USD = float(os.getenv("ESCALATE_USD", "25000"))
+
+# Viability thresholds — below these, pursuing the recovery is not worth the cost,
+# so Lumen recommends DECLINING (closing the file) instead of pursuing.
+PURSUE_MIN_USD = float(os.getenv("PURSUE_MIN_USD", "2500"))
+PURSUE_MIN_FAULT_PCT = float(os.getenv("PURSUE_MIN_FAULT_PCT", "25"))

@@ -42,3 +42,7 @@ export const MODELS = {
 } as const;
 
 export const ESCALATE_USD = Number(process.env.ESCALATE_USD ?? 25000);
+
+// Below these, pursuing the recovery isn't worth the cost → recommend DECLINE.
+export const PURSUE_MIN_USD = Number(process.env.PURSUE_MIN_USD ?? 2500);
+export const PURSUE_MIN_FAULT_PCT = Number(process.env.PURSUE_MIN_FAULT_PCT ?? 25);
