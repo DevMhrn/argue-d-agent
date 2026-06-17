@@ -60,7 +60,7 @@ async def build_ledger(claim: ClaimInput, statutes: list[Statute]) -> LedgerGrap
     docs_text = "\n\n".join(f"### {d.name} (page 1 · {d.kind})\n{d.text}" for d in claim.documents)
     stat_text = "\n".join(f"[{s.id}] {s.title}" for s in statutes)
     raw = await chat(
-        provider="featherless",
+        provider="gemini",
         model=MODELS["evidence"],
         system=EXTRACTION_PROMPT,
         user=f"CASE {claim.caseId}\n\nDOCUMENTS:\n{docs_text}\n\nAVAILABLE STATUTES:\n{stat_text}\n\nExtract the evidence-ledger graph.",

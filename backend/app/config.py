@@ -16,32 +16,42 @@ class ProviderConfig:
     label: str
 
 
+# Three direct providers, all reached through the OpenAI-compatible chat-completions
+# surface (one client, different base_url + key per provider). Three different model
+# FAMILIES — Anthropic, Google, OpenAI — which is what makes the cross-family debate
+# and dual-adjudicator consensus genuinely independent.
 PROVIDERS: dict[str, ProviderConfig] = {
-    "aimlapi": ProviderConfig(
-        base_url=os.getenv("AIMLAPI_BASE_URL", "https://api.aimlapi.com/v1"),
-        api_key=os.getenv("AIMLAPI_API_KEY") or None,
-        env_key="AIMLAPI_API_KEY",
-        label="AI/ML API (frontier)",
+    "anthropic": ProviderConfig(
+        base_url=os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1/"),
+        api_key=os.getenv("ANTHROPIC_API_KEY") or None,
+        env_key="ANTHROPIC_API_KEY",
+        label="Anthropic (Claude)",
     ),
-    "featherless": ProviderConfig(
-        base_url=os.getenv("FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"),
-        api_key=os.getenv("FEATHERLESS_API_KEY") or None,
-        env_key="FEATHERLESS_API_KEY",
-        label="Featherless (open-source)",
+    "gemini": ProviderConfig(
+        base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+        api_key=os.getenv("GEMINI_API_KEY") or None,
+        env_key="GEMINI_API_KEY",
+        label="Google (Gemini)",
+    ),
+    "openai": ProviderConfig(
+        base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        api_key=os.getenv("OPENAI_API_KEY") or None,
+        env_key="OPENAI_API_KEY",
+        label="OpenAI (GPT)",
     ),
 }
 
-# Default model id per agent. PLACEHOLDERS — confirm exact ids in each provider's
-# catalog before running live. Irrelevant in mock mode.
+# Default model id per agent. Confirm exact ids in each provider's catalog before
+# running live (override via env). Irrelevant in mock mode.
 MODELS = {
-    "intake": os.getenv("MODEL_INTAKE", "meta-llama/Meta-Llama-3.1-8B-Instruct"),
-    "evidence": os.getenv("MODEL_EVIDENCE", "Qwen/Qwen2.5-72B-Instruct"),
-    "advocate": os.getenv("MODEL_ADVOCATE", "claude-3-opus"),
+    "intake": os.getenv("MODEL_INTAKE", "gpt-4o-mini"),
+    "evidence": os.getenv("MODEL_EVIDENCE", "gemini-2.5-flash"),
+    "advocate": os.getenv("MODEL_ADVOCATE", "claude-opus-4-8"),
     "opposing": os.getenv("MODEL_OPPOSING", "gpt-4o"),
-    "adjudicator": os.getenv("MODEL_ADJUDICATOR", "claude-3-5-sonnet"),
-    "adjudicator_b": os.getenv("MODEL_ADJUDICATOR_B", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
-    "verifier": os.getenv("MODEL_VERIFIER", "Qwen/Qwen2.5-72B-Instruct"),
-    "drafter": os.getenv("MODEL_DRAFTER", "claude-3-5-sonnet"),
+    "adjudicator": os.getenv("MODEL_ADJUDICATOR", "claude-opus-4-8"),
+    "adjudicator_b": os.getenv("MODEL_ADJUDICATOR_B", "gemini-2.5-pro"),
+    "verifier": os.getenv("MODEL_VERIFIER", "gemini-2.5-flash"),
+    "drafter": os.getenv("MODEL_DRAFTER", "claude-sonnet-4-6"),
 }
 
 ESCALATE_USD = float(os.getenv("ESCALATE_USD", "25000"))

@@ -18,7 +18,7 @@ def is_mock() -> bool:
         return True
     if flag == "0":
         return False
-    return not PROVIDERS["aimlapi"].api_key and not PROVIDERS["featherless"].api_key
+    return not any(p.api_key for p in PROVIDERS.values())
 
 
 _clients: dict[str, object] = {}
