@@ -5,7 +5,7 @@ import { mockChat } from './mockResponses';
 export function isMock(): boolean {
   if (process.env.LUMEN_MOCK === '1') return true;
   if (process.env.LUMEN_MOCK === '0') return false;
-  return !PROVIDERS.aimlapi.apiKey && !PROVIDERS.featherless.apiKey;
+  return !Object.values(PROVIDERS).some((p) => p.apiKey);
 }
 
 // Lazily created OpenAI-compatible clients, one per provider.
