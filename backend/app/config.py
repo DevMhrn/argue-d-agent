@@ -50,3 +50,7 @@ ESCALATE_USD = float(os.getenv("ESCALATE_USD", "25000"))
 # so Lumen recommends DECLINING (closing the file) instead of pursuing.
 PURSUE_MIN_USD = float(os.getenv("PURSUE_MIN_USD", "2500"))
 PURSUE_MIN_FAULT_PCT = float(os.getenv("PURSUE_MIN_FAULT_PCT", "25"))
+
+# Build the evidence ledger from the graph lane (backend/ledger) instead of the
+# inline evidence agent. Set LUMEN_USE_LEDGER=0 to fall back to the inline agent.
+USE_LEDGER_LANE = os.getenv("LUMEN_USE_LEDGER", "1") != "0"

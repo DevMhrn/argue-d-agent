@@ -8,13 +8,14 @@ import re
 from dataclasses import dataclass
 
 from .agents import AGENTS, AgentDef
-from .config import ESCALATE_USD, PURSUE_MIN_USD, PURSUE_MIN_FAULT_PCT
+from .config import ESCALATE_USD, PURSUE_MIN_USD, PURSUE_MIN_FAULT_PCT, USE_LEDGER_LANE
 from .providers import chat
 from .gates import check_points, check_ledger_anchoring, check_adjudicator_math, MathGateResult
 from .verifier import collect_verifier_tasks, summarize_alignment, VerifierTask
 from .ledger import valid_citation_ids, render_ledger, render_statutes
 from .mock_responses import set_mock_case
 from .room import Room
+from ..ledger.builder import build_ledger, graph_to_evidence_ledger
 from .types import (
     ClaimInput, Statute, Point, Points, Rebuttal, Decision, FinalDecision,
     Intake, EvidenceLedger, Alignment,
@@ -187,10 +188,18 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> L
     await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
                     f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake.damagesUsd)}")
 
-    # 2) Evidence ledger
-    ledger = EvidenceLedger.model_validate(_safe_json(await _ask(AGENTS["evidence"], f"Build the evidence ledger from:\n{docs_text}", "ledger")))
-    await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
-                    f"Evidence Ledger — {len(ledger.facts)} facts:\n" + "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+    # 2) Evidence ledger — built by the ledger lane (typed graph → projected to facts),
+    #    or by the inline evidence agent when the lane is disabled.
+    if USE_LEDGER_LANE:
+        graph = await build_ledger(claim, statutes)
+        ledger = graph_to_evidence_ledger(graph)
+        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
+                        f"Evidence-ledger graph built — {len(graph.nodes)} nodes, {len(graph.edges)} edges → {len(ledger.facts)} facts:\n" +
+                        "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+    else:
+        ledger = EvidenceLedger.model_validate(_safe_json(await _ask(AGENTS["evidence"], f"Build the evidence ledger from:\n{docs_text}", "ledger")))
+        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
+                        f"Evidence Ledger — {len(ledger.facts)} facts:\n" + "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
 
     # 2b) Fact Gate
     fact_check = check_ledger_anchoring(ledger, claim)
