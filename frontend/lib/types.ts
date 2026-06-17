@@ -112,10 +112,30 @@ export interface CaseStatusResponse {
 // pipeline still uses the static claim shape — we surface both.
 
 export interface LegacyCase {
+  source?: "demo";
   id: string;
   title: string;
   subtitle?: string;
   outcome?: string;
+}
+
+/** A case stored in Supabase (created via the /api/ingest/case upload flow). */
+export interface DbCase {
+  source: "db";
+  id: string;          // UUID
+  case_id: string;     // human id, e.g. "CLM-2026-0427"
+  title: string;
+  summary: string | null;
+  jurisdiction: string;
+  damages_usd: number | null;
+  insured_name: string | null;
+  other_party_name: string | null;
+  ingestion_complete: boolean;
+  ledger_complete: boolean;
+  finalized: boolean;
+  last_run_at: string | null;
+  updated_at: string;
+  stage: "ingesting" | "ledger" | "ready" | "finalized" | "declined";
 }
 
 export interface LegacyClaim {
@@ -126,6 +146,74 @@ export interface LegacyClaim {
   damagesUsd: number;
   documents: Array<{ kind: string; filename?: string }>;
 }
+
+// ---- ledger graph (read-only — Gowtham's lane writes) ---------------------
+
+export type NodeType =
+  | "Fact"
+  | "Party"
+  | "Vehicle"
+  | "Event"
+  | "Location"
+  | "Statute"
+  | "Damage"
+  | "Document";
+
+export interface NodeRow {
+  id: string;
+  case_id: string;
+  node_id: string; // human-readable display id, e.g. "F1", "P1"
+  type: NodeType;
+  props: Record<string, unknown>;
+  verbatim_quote: string | null;
+  source_document_id: string | null;
+  source_page_number: number | null;
+  confidence: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EdgeType =
+  | "mentioned_in"
+  | "corroborates"
+  | "contradicts"
+  | "attributed_to"
+  | "governed_by"
+  | "caused"
+  | "involves"
+  | "occurred_at"
+  | "drives";
+
+export interface EdgeRow {
+  id: string;
+  case_id: string;
+  edge_id: string;
+  from_id: string;
+  to_id: string;
+  type: EdgeType;
+  props: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---- case-detail response shapes -------------------------------------------
+
+export interface DemoCaseResponse {
+  source: "demo";
+  meta: { id: string; title: string; subtitle?: string; outcome?: string; file: string };
+  claim: LegacyClaim;
+}
+
+export interface DbCaseResponse {
+  source: "db";
+  case: import("./types").DbCase | (Omit<DbCase, "stage"> & { stage?: string });
+  documents: DocumentRow[];
+  has_ledger: boolean;
+  nodes: NodeRow[];
+  edges: EdgeRow[];
+}
+
+export type CaseDetailResponse = DemoCaseResponse | DbCaseResponse;
 
 // ---- SSE event shape (from /api/run/:id) -----------------------------------
 

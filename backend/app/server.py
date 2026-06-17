@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Any, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,18 +60,141 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def _stage_of(case: dict[str, Any]) -> str:
+    """Single-string stage indicator for the home page badge.
+
+    Mirrors the same logic the frontend uses for static-case badges.
+    """
+    outcome = (case.get("metadata") or {}).get("outcome")
+    if outcome == "decline":
+        return "declined"
+    if case.get("finalized"):
+        return "finalized"
+    if case.get("ledger_complete"):
+        return "ready"
+    if case.get("ingestion_complete"):
+        return "ledger"
+    return "ingesting"
+
+
+def _serialize_case(c) -> dict[str, Any]:
+    """CaseRow → JSON-safe dict for the /api/cases response."""
+    return {
+        "source": "db",
+        "id": str(c.id),
+        "case_id": c.case_id,
+        "title": c.title,
+        "summary": c.summary,
+        "jurisdiction": c.jurisdiction,
+        "damages_usd": float(c.damages_usd) if c.damages_usd is not None else None,
+        "insured_name": c.insured_name,
+        "other_party_name": c.other_party_name,
+        "ingestion_complete": c.ingestion_complete,
+        "ledger_complete": c.ledger_complete,
+        "finalized": c.finalized,
+        "last_run_at": c.last_run_at.isoformat() if c.last_run_at else None,
+        "updated_at": c.updated_at.isoformat(),
+        "stage": _stage_of(
+            {
+                "metadata": dict(c.metadata or {}),
+                "ingestion_complete": c.ingestion_complete,
+                "ledger_complete": c.ledger_complete,
+                "finalized": c.finalized,
+            }
+        ),
+    }
+
+
 @app.get("/api/cases")
-def api_cases():
-    return {"mock": is_mock(), "cases": _load_cases()}
+async def api_cases():
+    """Unified cases list — demo (JSON) cases + real (Supabase) cases.
+
+    Demo cases come from data/cases.json and drive the canned-mock orchestration
+    (clean / loser). Real cases live in Supabase and were created via the
+    /api/ingest/case upload flow. Both are returned so the home page surfaces
+    everything; the frontend disambiguates with the `source` discriminator.
+
+    Supabase failures are swallowed (the home page still shows demo cases even
+    if the DB pool can't be built — e.g. missing DATABASE_URL).
+    """
+    demo_cases = [{"source": "demo", **c} for c in _load_cases()]
+    db_cases: list[dict[str, Any]] = []
+    db_error: Optional[str] = None
+    try:
+        # Lazy import so /api/cases keeps working in pure-mock dev without
+        # Supabase creds. ingestion.repository imports asyncpg + dotenv at module load.
+        from backend.ingestion.repository import IngestionRepository
+
+        repo = IngestionRepository()
+        rows = await repo.list_cases(limit=100)
+        db_cases = [_serialize_case(r) for r in rows]
+    except Exception as e:  # noqa: BLE001
+        db_error = f"{type(e).__name__}: {e}"
+
+    return {
+        "mock": is_mock(),
+        "cases": demo_cases,        # legacy key — kept for backward-compat
+        "demo_cases": demo_cases,
+        "db_cases": db_cases,
+        "db_error": db_error,
+    }
+
+
+def _is_uuid(s: str) -> bool:
+    """Cheap detect: 36 chars with dashes in the canonical positions."""
+    if len(s) != 36:
+        return False
+    try:
+        import uuid as _uuid
+        _uuid.UUID(s)
+        return True
+    except (ValueError, AttributeError):
+        return False
 
 
 @app.get("/api/case/{case_id}")
-def api_case(case_id: str):
+async def api_case(case_id: str):
+    """Unified case lookup — handles both demo IDs and real Supabase UUIDs.
+
+    Demo IDs ('clean'/'loser') from data/cases.json return the legacy
+    {meta, claim} shape the existing UI expects.
+
+    Real UUIDs return {source: 'db', case, documents, has_ledger, nodes?,
+    edges?} so the frontend can render the staged Argument Room flow with the
+    actual ingestion/ledger state instead of pretending to be a demo case.
+    """
+    if _is_uuid(case_id):
+        from uuid import UUID as _UUID
+        from backend.ingestion.repository import IngestionRepository
+
+        repo = IngestionRepository()
+        case_uuid = _UUID(case_id)
+        case = await repo.get_case(case_uuid)
+        if case is None:
+            return JSONResponse({"error": "unknown case"}, status_code=404)
+        documents = await repo.list_documents_for_case(case_uuid)
+        nodes_payload: list[dict[str, Any]] = []
+        edges_payload: list[dict[str, Any]] = []
+        if case.ledger_complete:
+            nodes = await repo.list_nodes_for_case(case_uuid)
+            edges = await repo.list_edges_for_case(case_uuid)
+            nodes_payload = [n.model_dump(mode="json") for n in nodes]
+            edges_payload = [e.model_dump(mode="json") for e in edges]
+        return {
+            "source": "db",
+            "case": case.model_dump(mode="json"),
+            "documents": [d.model_dump(mode="json") for d in documents],
+            "has_ledger": case.ledger_complete,
+            "nodes": nodes_payload,
+            "edges": edges_payload,
+        }
+
+    # Demo case (legacy path)
     meta = next((c for c in _load_cases() if c["id"] == case_id), None)
     if not meta:
         return JSONResponse({"error": "unknown case"}, status_code=404)
     claim = json.loads((DATA / meta["file"]).read_text())
-    return {"meta": meta, "claim": claim}
+    return {"source": "demo", "meta": meta, "claim": claim}
 
 
 @app.get("/api/run/{case_id}")

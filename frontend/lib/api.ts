@@ -10,8 +10,10 @@
  */
 import type {
   CaseCreatePayload,
+  CaseDetailResponse,
   CaseRow,
   CaseStatusResponse,
+  DbCase,
   DocumentRow,
   LegacyCase,
   LegacyClaim,
@@ -26,6 +28,27 @@ export class ApiError extends Error {
     this.status = status;
     this.name = "ApiError";
   }
+}
+
+/**
+ * Resolve a path to a full URL.
+ *
+ * Client-side (browser): return the relative path so the Next.js dev-server
+ * rewrite in next.config.ts proxies /api/* to the FastAPI backend on :8000.
+ *
+ * Server-side (Node runtime — e.g. Server Components, route handlers,
+ * generateStaticParams): the rewrite doesn't apply because the request never
+ * leaves the Node process. We must hit the backend with an absolute URL.
+ * The base URL comes from LUMEN_API_BASE_URL (matches next.config.ts) and
+ * defaults to http://127.0.0.1:8000 in dev.
+ */
+function apiUrl(path: string): string {
+  if (typeof window !== "undefined") return path;
+  const base =
+    process.env.LUMEN_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    "http://127.0.0.1:8000";
+  return `${base}${path}`;
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -45,7 +68,7 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 // ---- ingestion lane --------------------------------------------------------
 
 export async function createCase(payload: CaseCreatePayload): Promise<CaseRow> {
-  const res = await fetch("/api/ingest/case", {
+  const res = await fetch(apiUrl("/api/ingest/case"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -56,7 +79,7 @@ export async function createCase(payload: CaseCreatePayload): Promise<CaseRow> {
 export async function signUpload(
   payload: PrepareUploadRequest,
 ): Promise<PrepareUploadResponse> {
-  const res = await fetch("/api/ingest/sign-upload", {
+  const res = await fetch(apiUrl("/api/ingest/sign-upload"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -100,7 +123,7 @@ export async function uploadToStorage(
 }
 
 export async function commitUpload(documentId: string): Promise<DocumentRow> {
-  const res = await fetch("/api/ingest/commit", {
+  const res = await fetch(apiUrl("/api/ingest/commit"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ document_id: documentId }),
@@ -109,12 +132,12 @@ export async function commitUpload(documentId: string): Promise<DocumentRow> {
 }
 
 export async function getCaseStatus(caseId: string): Promise<CaseStatusResponse> {
-  const res = await fetch(`/api/ingest/status/${caseId}`, { cache: "no-store" });
+  const res = await fetch(apiUrl(`/api/ingest/status/${caseId}`), { cache: "no-store" });
   return jsonOrThrow<CaseStatusResponse>(res);
 }
 
 export async function finalizeCase(caseId: string): Promise<CaseRow> {
-  const res = await fetch(`/api/ingest/finalize/${caseId}`, { method: "POST" });
+  const res = await fetch(apiUrl(`/api/ingest/finalize/${caseId}`), { method: "POST" });
   return jsonOrThrow<CaseRow>(res);
 }
 
@@ -122,24 +145,38 @@ export async function finalizeCase(caseId: string): Promise<CaseRow> {
 
 export interface CasesResponse {
   mock: boolean;
+  /** Backward-compat alias — same as demo_cases. */
   cases: LegacyCase[];
+  demo_cases: LegacyCase[];
+  db_cases: DbCase[];
+  db_error: string | null;
 }
 
 export async function getCases(): Promise<CasesResponse> {
-  const res = await fetch("/api/cases", { cache: "no-store" });
+  const res = await fetch(apiUrl("/api/cases"), { cache: "no-store" });
   return jsonOrThrow<CasesResponse>(res);
 }
 
-export async function getCase(id: string): Promise<{ claim: LegacyClaim }> {
-  const res = await fetch(`/api/case/${id}`, { cache: "no-store" });
-  return jsonOrThrow<{ claim: LegacyClaim }>(res);
+export async function getCase(id: string): Promise<CaseDetailResponse> {
+  const res = await fetch(apiUrl(`/api/case/${id}`), { cache: "no-store" });
+  return jsonOrThrow<CaseDetailResponse>(res);
+}
+
+/** Backward-compat shim — only used by code paths that still expect the
+ *  legacy {claim} shape (the existing three-panel demo view). */
+export async function getDemoClaim(id: string): Promise<{ claim: LegacyClaim }> {
+  const data = await getCase(id);
+  if (data.source !== "demo") {
+    throw new ApiError(`Case ${id} is not a demo case`, 400);
+  }
+  return { claim: data.claim };
 }
 
 export async function postDecision(payload: {
   caseId: string;
   action: "approve" | "reject";
 }): Promise<{ ok: boolean }> {
-  const res = await fetch("/api/decision", {
+  const res = await fetch(apiUrl("/api/decision"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),

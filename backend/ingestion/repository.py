@@ -30,6 +30,8 @@ from backend.schemas import (
     DocumentPageRow,
     DocumentRow,
     DocumentStatusUpdate,
+    EdgeRow,
+    NodeRow,
     StatuteRow,
 )
 
@@ -111,6 +113,36 @@ def _row_to_statute(r: asyncpg.Record) -> StatuteRow:
     )
 
 
+def _row_to_node(r: asyncpg.Record) -> NodeRow:
+    return NodeRow(
+        id=r["id"],
+        case_id=r["case_id"],
+        node_id=r["node_id"],
+        type=r["type"],
+        props=_jsonb(r["props"]) or {},
+        verbatim_quote=r["verbatim_quote"],
+        source_document_id=r["source_document_id"],
+        source_page_number=r["source_page_number"],
+        confidence=r["confidence"],
+        created_at=r["created_at"],
+        updated_at=r["updated_at"],
+    )
+
+
+def _row_to_edge(r: asyncpg.Record) -> EdgeRow:
+    return EdgeRow(
+        id=r["id"],
+        case_id=r["case_id"],
+        edge_id=r["edge_id"],
+        from_id=r["from_id"],
+        to_id=r["to_id"],
+        type=r["type"],
+        props=_jsonb(r["props"]) or {},
+        created_at=r["created_at"],
+        updated_at=r["updated_at"],
+    )
+
+
 def _jsonb(value: Any) -> Optional[dict[str, Any]]:
     """asyncpg returns JSONB as str by default unless a codec is registered.
     Handle both cases defensively."""
@@ -165,6 +197,33 @@ class IngestionRepository:
         async with pool.acquire() as conn:
             row = await conn.fetchrow("select * from cases where id = $1", case_id)
             return _row_to_case(row) if row else None
+
+    async def list_cases(
+        self,
+        *,
+        tenant_id: Optional[UUID] = None,
+        limit: int = 100,
+    ) -> list[CaseRow]:
+        """List cases for a tenant, newest first.
+
+        Defaults to the demo tenant if no tenant_id is given. Used by the
+        /api/cases endpoint to surface Supabase-backed cases (the ones created
+        via the /api/ingest/case upload flow) on the home page.
+        """
+        effective_tenant = tenant_id or UUID("00000000-0000-0000-0000-000000000001")
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                select * from cases
+                where tenant_id = $1
+                order by coalesce(last_run_at, updated_at) desc
+                limit $2
+                """,
+                effective_tenant,
+                limit,
+            )
+            return [_row_to_case(r) for r in rows]
 
     async def update_case_status(
         self, case_id: UUID, payload: CaseStatusUpdate
@@ -291,6 +350,29 @@ class IngestionRepository:
                 case_id,
             )
             return [_row_to_document(r) for r in rows]
+
+    # ----- ledger (read-only — Gowtham's lane owns writes) ------------------
+
+    async def list_nodes_for_case(self, case_id: UUID) -> list[NodeRow]:
+        """Read the locked ledger graph for a case. Returns [] before the
+        ledger lane has populated it. node_id-ordered (F1, F2, … then P1, …)."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "select * from nodes where case_id = $1 order by node_id asc",
+                case_id,
+            )
+            return [_row_to_node(r) for r in rows]
+
+    async def list_edges_for_case(self, case_id: UUID) -> list[EdgeRow]:
+        """Read the typed relationships for a case's ledger graph."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "select * from edges where case_id = $1 order by edge_id asc",
+                case_id,
+            )
+            return [_row_to_edge(r) for r in rows]
 
     # ----- document_pages ----------------------------------------------------
 
