@@ -231,6 +231,11 @@ function onResult(res) {
   $("#recoveryAmount").textContent = money(d.recoveryUsd);
   $("#recoverySub").textContent = `${d.otherDriverFaultPct}% fault × ${money(res.intake.damagesUsd)} documented damages`;
 
+  const outcome = d.outcome || (d.escalate ? "escalate" : "pursue");
+  const recLabel = document.querySelector(".recovery__label");
+  if (recLabel) recLabel.textContent = outcome === "decline" ? "Maximum recoverable (not pursued)" : "Recommended recovery demand";
+  $("#recoveryAmount").classList.toggle("recovery__amount--muted", outcome === "decline");
+
   $("#faultPctLabel").textContent = `${d.otherDriverFaultPct}% / ${100 - d.otherDriverFaultPct}%`;
   $("#splitFill").style.width = d.otherDriverFaultPct + "%";
 
@@ -239,7 +244,7 @@ function onResult(res) {
   $("#confFill").style.width = confPct + "%";
 
   renderConsensus(d);
-  renderEscalation(res, d);
+  renderRecommendation(res, d, outcome);
   renderFaultTable(d.faultTable || []);
   renderLedger(res.ledger);
 
@@ -272,16 +277,40 @@ function renderConsensus(d) {
   else c.innerHTML = `Adjudication complete`;
 }
 
-function renderEscalation(res, d) {
+function renderRecommendation(res, d, outcome) {
   const box = $("#escalation");
-  if (!d.escalate) { box.hidden = true; return; }
-  box.hidden = false;
+  const head = document.querySelector(".escalation__head");
+  const actions = document.querySelector(".escalation__actions");
   const ul = $("#escalationReasons");
+  const note = $("#humanResult");
   ul.innerHTML = "";
-  (d.escalateReasons || []).forEach((r) => ul.appendChild(el("li", "", esc(r))));
-  $("#humanResult").hidden = true;
-  $("#approveBtn").onclick = () => human(res.intake ? d : d, "approve");
-  $("#rejectBtn").onclick = () => human(d, "reject");
+  note.hidden = true;
+
+  if (outcome === "decline") {
+    // Lumen recommends NOT pursuing — close the file.
+    box.hidden = false;
+    box.className = "escalation escalation--decline";
+    head.textContent = "✕ Recommendation: DO NOT PURSUE";
+    (d.declineReason ? d.declineReason.split("; ") : []).forEach((r) => ul.appendChild(el("li", "", esc(r))));
+    if (actions) actions.style.display = "none";
+    note.hidden = false;
+    note.className = "escalation__result no";
+    note.textContent = "Recommend closing the file — recovery does not justify the cost of pursuit.";
+    return;
+  }
+
+  if (actions) actions.style.display = "";
+  if (outcome === "escalate") {
+    box.hidden = false;
+    box.className = "escalation";
+    head.textContent = "⚑ Escalated to human adjuster";
+    (d.escalateReasons || []).forEach((r) => ul.appendChild(el("li", "", esc(r))));
+    $("#approveBtn").onclick = () => human(d, "approve");
+    $("#rejectBtn").onclick = () => human(d, "reject");
+  } else {
+    // pursue — auto-cleared, no human gate needed
+    box.hidden = true;
+  }
 }
 
 async function human(_d, action) {

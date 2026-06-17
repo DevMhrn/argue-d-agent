@@ -15,7 +15,7 @@ backend/
 │   ├── gates.py                 #   Citation, Fact, Math gates (code-enforced)
 │   ├── verifier.py              #   Source-Alignment Verifier helper
 │   ├── room.py                  #   Band-room wrapper (LocalRoom + BandRoom)
-│   ├── providers.py             #   AI/ML API + Featherless OpenAI-compatible client + mock switch
+│   ├── providers.py             #   Anthropic / Gemini / OpenAI OpenAI-compatible client + mock switch
 │   ├── mock_responses.py        #   Deterministic offline outputs for the demo
 │   ├── config.py                #   Models, providers, thresholds
 │   ├── types.py                 #   Pipeline-internal Pydantic models (ClaimInput, FinalDecision, ...)
@@ -75,7 +75,7 @@ python -m backend.app.run_server      # FastAPI server on :3000
 python -m backend.app.run_demo        # CLI demo (mock mode by default)
 ```
 
-Live mode requires `AIMLAPI_API_KEY` and `FEATHERLESS_API_KEY` in `.env`. Real ingestion additionally requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
+Live mode requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `OPENAI_API_KEY` in `.env` (agents run across all three model families). Real ingestion additionally requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
 
 ## Application schemas vs pipeline types
 

@@ -10,5 +10,11 @@
     "jurisdiction": "CA",
     "title": "California Vehicle Code §21453(a) — Steady Red Signal",
     "text": "A driver facing a steady circular red signal alone shall stop at a marked limit line, or if none, before entering the crosswalk or intersection, and shall remain stopped until an indication to proceed is shown."
+  },
+  {
+    "id": "CVC-21703",
+    "jurisdiction": "CA",
+    "title": "California Vehicle Code §21703 — Following Too Closely",
+    "text": "The driver of a motor vehicle shall not follow another vehicle more closely than is reasonable and prudent, having due regard for the speed of such vehicle and the traffic upon, and the condition of, the roadway."
   }
 ]

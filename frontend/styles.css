@@ -306,6 +306,9 @@ p { margin: 0; }
 .consensus.disagreement, .consensus.single { color: var(--warn); border-color: rgba(245, 185, 66, 0.3); background: rgba(245, 185, 66, 0.06); }
 
 .escalation { border: 1px solid rgba(245, 185, 66, 0.4); background: rgba(245, 185, 66, 0.06); border-radius: 10px; padding: 12px; }
+.escalation--decline { border-color: rgba(251, 111, 124, 0.45); background: rgba(251, 111, 124, 0.08); }
+.escalation--decline .escalation__head { color: var(--bad); }
+.recovery__amount--muted { background: linear-gradient(180deg, #c7cede, #8b95ad); -webkit-background-clip: text; background-clip: text; }
 .escalation__head { color: var(--warn); font-weight: 650; font-size: 12.5px; margin-bottom: 8px; }
 .escalation__reasons { margin: 0 0 10px; padding-left: 18px; font-size: 11.5px; color: var(--muted); }
 .escalation__reasons li { margin: 2px 0; }

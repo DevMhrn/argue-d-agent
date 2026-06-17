@@ -1,0 +1,34 @@
+{
+  "caseId": "CLM-2026-0588",
+  "insured": "Sam Carter",
+  "otherParty": "Dana Lee",
+  "jurisdiction": "CA",
+  "damagesUsd": 18000,
+  "documents": [
+    {
+      "name": "fnol.txt",
+      "kind": "First Notice of Loss",
+      "text": "Policyholder Sam Carter reports a collision on 2026-05-14 at Elm St & 2nd Ave, Oakland, CA. Insured states 'the car in front stopped at the light and I couldn't stop in time and hit the back of it.' Insured vehicle drivable but front-end damage; insured reported no injuries. Other driver identified as Dana Lee."
+    },
+    {
+      "name": "police_report.pdf",
+      "kind": "police report",
+      "text": "Officer narrative: Vehicle 1 (Carter) struck Vehicle 2 (Lee) from behind while Vehicle 2 (Lee) was stopped at a steady red signal. Carter cited under CVC 21703 for following too closely. No citation issued to Lee. Roadway was wet."
+    },
+    {
+      "name": "edr_readout.pdf",
+      "kind": "event data recorder",
+      "text": "Carter vehicle EDR, 5 seconds pre-impact: speed 30 mph; no brake application until 0.3 seconds before impact; steady throttle prior to braking."
+    },
+    {
+      "name": "weather_report.pdf",
+      "kind": "weather report",
+      "text": "NOAA station record for the area at the time of collision: light rain, roadway wet, visibility reduced."
+    },
+    {
+      "name": "repair_invoice.pdf",
+      "kind": "repair and medical billing",
+      "text": "Certified body shop estimate for Carter vehicle front-end repair: $18,000. No medical billing submitted. Total documented damages: $18,000."
+    }
+  ]
+}

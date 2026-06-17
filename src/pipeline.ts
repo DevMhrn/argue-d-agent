@@ -6,7 +6,8 @@ import { checkAdjudicatorMath } from './mathGate';
 import { collectVerifierTasks, summarizeAlignment, VerifierTask } from './verifier';
 import { validCitationIds, renderLedger, renderStatutes } from './ledger';
 import { Room } from './room';
-import { ESCALATE_USD } from './config';
+import { ESCALATE_USD, PURSUE_MIN_USD, PURSUE_MIN_FAULT_PCT } from './config';
+import { setMockCase } from './mockResponses';
 import {
   ClaimInput, Statute, Point, FinalDecision, Decision,
   IntakeSchema, EvidenceLedgerSchema, PointsSchema, RebuttalSchema, DecisionSchema,
@@ -33,17 +34,18 @@ const SYS = 'System';
 const CONSENSUS_TOLERANCE_PP = 10;
 
 export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Room): Promise<LumenResult> {
+  setMockCase(claim.caseId); // select this case's canned outputs in mock mode (no-op live)
   const docsText = claim.documents.map((d) => `### ${d.name} (${d.kind})\n${d.text}`).join('\n\n');
 
   room.post(SYS, 250, 'system',
     `Claim ${claim.caseId} opened. Jurisdiction ${claim.jurisdiction}. Documented damages $${claim.damagesUsd.toLocaleString()}.`);
 
-  // 1) Intake (Featherless) ----------------------------------------------------
+  // 1) Intake (OpenAI) ----------------------------------------------------------
   const intake = IntakeSchema.parse(safeJson(await ask(AGENTS.intake, `CLAIM DOCUMENTS:\n${docsText}`, 'intake')));
   room.post(AGENTS.intake.name, AGENTS.intake.color, 'message',
     `${intake.parties.insured} vs ${intake.parties.otherParty} | ${intake.date} | ${intake.location} | damages $${intake.damagesUsd.toLocaleString()}`);
 
-  // 2) Evidence Ledger (Featherless) -------------------------------------------
+  // 2) Evidence Ledger (Gemini) ------------------------------------------------
   const ledger = EvidenceLedgerSchema.parse(safeJson(await ask(AGENTS.evidence, `Build the evidence ledger from:\n${docsText}`, 'ledger')));
   room.post(AGENTS.evidence.name, AGENTS.evidence.color, 'message',
     `Evidence Ledger — ${ledger.facts.length} facts:\n` + ledger.facts.map((f) => `   [${f.id}] ${f.statement}  (${f.source})`).join('\n'));
@@ -181,6 +183,24 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
   if (consensusType === 'single') escalateReasons.push(`only one adjudicator usable`);
   if (verifierContradicted > 0) escalateReasons.push(`source-alignment verifier flagged ${verifierContradicted} contradicted claim(s)`);
   const escalate = escalateReasons.length > 0;
+
+  // Viability: is pursuing this recovery worth the cost? If not, recommend DECLINE
+  // (close the file) — proving Lumen knows when NOT to chase, not just how to win.
+  const pursue = recoveryUsd >= PURSUE_MIN_USD && canonical.otherDriverFaultPct >= PURSUE_MIN_FAULT_PCT;
+  let declineReason: string | undefined;
+  let outcome: 'pursue' | 'escalate' | 'decline';
+  if (!pursue) {
+    const bits: string[] = [];
+    if (recoveryUsd < PURSUE_MIN_USD) bits.push(`recovery $${recoveryUsd.toLocaleString()} below the $${PURSUE_MIN_USD.toLocaleString()} pursuit threshold`);
+    if (canonical.otherDriverFaultPct < PURSUE_MIN_FAULT_PCT) bits.push(`other-driver fault ${canonical.otherDriverFaultPct}% below the ${PURSUE_MIN_FAULT_PCT}% viability floor`);
+    declineReason = bits.join('; ');
+    outcome = 'decline';
+  } else if (escalate) {
+    outcome = 'escalate';
+  } else {
+    outcome = 'pursue';
+  }
+
   const finalDecision: FinalDecision = {
     ...canonical,
     recoveryUsd,
@@ -190,9 +210,14 @@ export async function runLumen(claim: ClaimInput, statutes: Statute[], room: Roo
     secondary,
     consensus: consensusType,
     consensusDelta,
+    outcome,
+    pursue,
+    declineReason,
   };
 
-  if (escalate) {
+  if (outcome === 'decline') {
+    room.post(SYS, 196, 'decision', `RECOMMENDATION: DO NOT PURSUE — ${declineReason}. Recommend closing the file.`);
+  } else if (escalate) {
     room.post(SYS, 196, 'decision', `ESCALATED TO HUMAN ADJUSTER — ${escalateReasons.join('; ')}. Awaiting Approve/Reject.`);
   }
 

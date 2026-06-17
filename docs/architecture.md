@@ -133,18 +133,20 @@ These don't have a single file — they're properties of the pipeline:
 
 ## Agents & Provider Routing
 
-Each agent runs on the model best suited for its job. The provider mix is deliberate: **frontier models for judgment, OSS models for high-volume mechanical work** — also the architecture story for both partner prizes.
+Each agent runs on the model best suited for its job, across **three independent model families** (Anthropic / Google / OpenAI). The assignment is deliberate: the Advocate (Claude) debates the Opposing red team (GPT), and Adjudicator A (Claude) is checked against Adjudicator B (Gemini) — different families, so the debate and the consensus check are genuinely independent, not one model arguing with itself.
 
-| # | Agent | File | Provider | Model (placeholder) | Job |
+| # | Agent | File | Provider | Model (default) | Job |
 |---|---|---|---|---|---|
-| 1 | Intake Parser | `agents.ts` | Featherless (OSS) | `Llama-3.1-8B-Instruct` | Extract parties, date, location, damages |
-| 2 | Evidence Aggregator | `agents.ts` | Featherless (OSS) | `Qwen2.5-72B-Instruct` | Build the Evidence Ledger from documents |
-| 3 | Liability Advocate | `agents.ts` | AI/ML API (frontier) | `claude-3-opus` | Argue our insured is owed recovery |
-| 4 | Opposing Red Team | `agents.ts` | AI/ML API (frontier) | `gpt-4o` | Attack our case (never negotiates) |
-| 5 | Adjudicator | `agents.ts` | AI/ML API (frontier) | `claude-3-5-sonnet` | Neutrally weigh evidence → fault % |
-| 6 | Demand Letter Drafter | `agents.ts` | AI/ML API (frontier) | `claude-3-5-sonnet` | Compose the formal demand letter |
+| 1 | Intake Parser | `agents.ts` | OpenAI (GPT) | `gpt-4o-mini` | Extract parties, date, location, damages |
+| 2 | Evidence Aggregator | `agents.ts` | Google (Gemini) | `gemini-2.5-flash` | Build the Evidence Ledger from documents |
+| 3 | Liability Advocate | `agents.ts` | Anthropic (Claude) | `claude-opus-4-8` | Argue our insured is owed recovery |
+| 4 | Opposing Red Team | `agents.ts` | OpenAI (GPT) | `gpt-4o` | Attack our case (never negotiates) |
+| 5 | Adjudicator A | `agents.ts` | Anthropic (Claude) | `claude-opus-4-8` | Neutrally weigh evidence → fault % |
+| 6 | Adjudicator B | `agents.ts` | Google (Gemini) | `gemini-2.5-pro` | Independent check on a different family |
+| 7 | Source-Alignment Verifier | `agents.ts` | Google (Gemini) | `gemini-2.5-flash` | Audit every cited claim vs its source |
+| 8 | Demand Letter Drafter | `agents.ts` | Anthropic (Claude) | `claude-sonnet-4-6` | Compose the formal demand letter |
 
-Model IDs are placeholders defined in `src/config.ts:MODELS` — confirm exact catalog IDs before flipping to live mode.
+All three are reached via their OpenAI-compatible chat endpoints (one client, different base_url + key per provider). Model IDs default in `config.ts`/`config.py:MODELS` and are env-overridable — confirm exact catalog IDs before flipping to live mode.
 
 ---
 
@@ -208,13 +210,14 @@ flowchart LR
   PIPELINE[Pipeline] --> CHAT["providers.ts<br/>chat()"]
   CHAT -->|isMock = true| MOCK[mockResponses.ts<br/>canned JSON]
   CHAT -->|isMock = false| LIVE[OpenAI-compatible<br/>HTTP call]
-  LIVE --> P1[AI/ML API]
-  LIVE --> P2[Featherless AI]
+  LIVE --> P1[Anthropic Claude]
+  LIVE --> P2[Google Gemini]
+  LIVE --> P3[OpenAI GPT]
 
   classDef pipe fill:#0f766e,stroke:#0d9488,color:#ccfbf1;
   classDef leaf fill:#1f2937,stroke:#374151,color:#e5e7eb;
   class PIPELINE,CHAT pipe;
-  class MOCK,LIVE,P1,P2 leaf;
+  class MOCK,LIVE,P1,P2,P3 leaf;
 ```
 
 Mock is the default when no API keys are set. Override with `LUMEN_MOCK=1` (force mock) or `LUMEN_MOCK=0` (force live, requires keys in `.env`).

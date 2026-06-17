@@ -20,22 +20,26 @@ You'll see the live Band-room transcript: facts get extracted, the Advocate and 
 ## Go live (when keys arrive)
 
 ```bash
-cp .env.example .env      # add AIMLAPI_API_KEY and FEATHERLESS_API_KEY
+cp .env.example .env      # add ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 pnpm demo:live
 ```
 
-Both providers are OpenAI-compatible, so the only change is real network calls. Confirm the exact model ids in each provider's catalog and set the `MODEL_*` vars in `.env`.
+All three providers are reached through their OpenAI-compatible chat endpoints, so the only change is real network calls. Confirm the exact model ids in each provider's catalog and set the `MODEL_*` vars in `.env`.
 
 ## How it's built
 
-| Agent | Provider | Job |
+Each agent runs on one of **three different model families** — so the Advocate-vs-Opposing debate and the dual-adjudicator consensus are genuinely independent, not the same model arguing with itself.
+
+| Agent | Model family | Job |
 |---|---|---|
-| Intake Parser | Featherless (OSS) | Extract incident facts |
-| Evidence Aggregator | Featherless (OSS) | Build the grounded Evidence Ledger |
-| Liability Advocate | AI/ML API (frontier) | Argue our insured is owed recovery |
-| Opposing-Carrier Red Team | AI/ML API (frontier) | Attack our case — *not a negotiator* |
-| Adjudicator | AI/ML API (frontier) | Neutrally set fault % + recovery |
-| Demand Letter Drafter | AI/ML API (frontier) | Write the formal letter |
+| Intake Parser | OpenAI (GPT) | Extract incident facts |
+| Evidence Aggregator | Google (Gemini) | Build the grounded Evidence Ledger |
+| Liability Advocate | Anthropic (Claude) | Argue our insured is owed recovery |
+| Opposing-Carrier Red Team | OpenAI (GPT) | Attack our case — *not a negotiator* |
+| Adjudicator A | Anthropic (Claude) | Neutrally set fault % + recovery |
+| Adjudicator B | Google (Gemini) | Independent check on a *different* family |
+| Source-Alignment Verifier | Google (Gemini) | Audit every cited claim vs its source |
+| Demand Letter Drafter | Anthropic (Claude) | Write the formal letter |
 
 **Anti-hallucination:** one Evidence Ledger is the single source of truth; the **Citation Gate** (`src/citationGate.ts`) is code that rejects any point not citing a real fact/statute id.
 
