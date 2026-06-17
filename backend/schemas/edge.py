@@ -41,6 +41,7 @@ class EdgeRow(BaseModel):
     type: EdgeType
     props: dict[str, Any]
     created_at: datetime
+    updated_at: datetime
 
 
 class EdgeCreate(BaseModel):

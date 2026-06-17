@@ -2,10 +2,14 @@
 from __future__ import annotations
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load backend/.env regardless of where Python is invoked from.
+# This file lives at backend/app/config.py → parent.parent is backend/.
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_ENV_PATH)
 
 
 @dataclass(frozen=True)

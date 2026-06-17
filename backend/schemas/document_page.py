@@ -26,6 +26,7 @@ class DocumentPageRow(BaseModel):
     char_count: int = Field(ge=0)
     extraction_metadata: Optional[dict[str, Any]] = None
     created_at: datetime
+    updated_at: datetime
 
 
 class DocumentPageCreate(BaseModel):

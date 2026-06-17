@@ -1,4 +1,8 @@
-# Python backend (Lumen). Install:  uv pip install -r requirements.txt
+# Python backend (Lumen).
+# Install:  uv pip install -r requirements.txt   (or)   pip install -r requirements.txt
+# Python >= 3.11 required (uses native list[X] / dict[X, Y] generics).
+
+# ---- Core orchestration backend (existing) ----------------------------------
 band-sdk>=1.0.0
 fastapi>=0.115
 uvicorn[standard]>=0.30
@@ -6,3 +10,14 @@ openai>=1.40
 pydantic>=2.7
 python-dotenv>=1.0
 pyyaml>=6.0
+
+# ---- Ingestion lane: database, storage, queue -------------------------------
+asyncpg>=0.29         # native-async Postgres client (used by repository.py)
+boto3>=1.34           # S3-compatible client for Backblaze B2 (storage.py)
+botocore>=1.34
+arq>=0.26             # Redis-backed async job queue (queue.py + worker.py)
+
+# ---- Ingestion lane: per-format text extractors -----------------------------
+pdfplumber>=0.11      # native PDF extraction (extractors/pdf.py)
+python-docx>=1.1      # DOCX extraction (extractors/docx.py)
+beautifulsoup4>=4.12  # HTML extraction (extractors/html.py)

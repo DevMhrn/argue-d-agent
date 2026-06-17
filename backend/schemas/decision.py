@@ -52,6 +52,8 @@ class DecisionRow(BaseModel):
     letter: str
     audit_hash: Optional[str] = None
     finalized_at: datetime
+    created_at: datetime
+    updated_at: datetime
 
 
 class DecisionCreate(BaseModel):

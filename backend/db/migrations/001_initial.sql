@@ -3,15 +3,23 @@
 -- ============================================================================
 --
 -- Tables for the three-stage pipeline:
---   1. INGESTION  (this lane) — cases, documents, document_pages, statutes
---   2. LEDGER     (Gowtham)   — nodes, edges
+--   1. INGESTION    (Aman)       — cases, runs, documents, document_pages, statutes
+--   2. LEDGER       (Gowtham)    — nodes, edges
 --   3. ORCHESTRATION (Sudharsan) — transcript, decisions
 --
 -- Apply to a fresh Supabase project via the SQL editor. Idempotent for table
--- creation; re-running on a populated DB is safe but will not rebuild triggers.
+-- creation; re-running on a populated DB is safe.
 --
 -- Creation order is bottom-up by foreign-key dependency:
---   cases → documents → document_pages → statutes → nodes → edges → transcript → decisions
+--   cases → runs → documents → document_pages → statutes → nodes → edges → transcript → decisions
+--
+-- Conventions:
+--   - All primary keys are uuid (gen_random_uuid()), generated server-side.
+--   - All timestamps are timestamptz; created_at + updated_at on every table.
+--   - Type-like columns use text + CHECK (enumerated) for easy migration.
+--   - JSONB for variable-shape data; jsonb_typeof CHECK where the root type matters.
+--   - Cascade deletes from cases → child tables; one exception: nodes.source_document_id
+--     uses SET NULL so historical facts survive their source document being removed.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -22,8 +30,7 @@ create extension if not exists pgcrypto;        -- gen_random_uuid()
 -- ---------------------------------------------------------------------------
 -- Shared helpers
 -- ---------------------------------------------------------------------------
--- updated_at auto-touch — attach as a BEFORE UPDATE trigger to any table that
--- has an updated_at column.
+-- BEFORE UPDATE trigger function attached to every table with updated_at.
 create or replace function set_updated_at()
 returns trigger as $$
 begin
@@ -35,13 +42,6 @@ $$ language plpgsql;
 -- ---------------------------------------------------------------------------
 -- cases — one row per subrogation case the system has seen.
 -- ---------------------------------------------------------------------------
--- tenant_id has a default UUID so single-tenant demo writes "just work";
--- production deployments override per request.
--- case_id is a human-readable identifier ("CLM-2026-0427") unique within tenant.
--- The three boolean flags drive the cross-stage handoff:
---   ingestion_complete → triggers Gowtham's ledger stage
---   ledger_complete    → triggers Sudharsan's orchestration stage
---   finalized          → human reviewer has signed off
 create table if not exists cases (
   id                  uuid primary key default gen_random_uuid(),
   tenant_id           uuid not null default '00000000-0000-0000-0000-000000000001',
@@ -55,6 +55,8 @@ create table if not exists cases (
   ingestion_complete  boolean not null default false,
   ledger_complete     boolean not null default false,
   finalized           boolean not null default false,
+  last_run_at         timestamptz,
+  metadata            jsonb not null default '{}'::jsonb,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now(),
   unique (tenant_id, case_id)
@@ -66,35 +68,62 @@ create trigger cases_set_updated_at before update on cases
 
 create index if not exists cases_tenant_id_idx on cases (tenant_id);
 create index if not exists cases_status_idx on cases (ingestion_complete, ledger_complete, finalized);
+create index if not exists cases_last_run_at_idx on cases (last_run_at desc nulls last);
+
+-- ---------------------------------------------------------------------------
+-- runs — one row per pipeline execution; replaces the bare run_id UUID.
+-- ---------------------------------------------------------------------------
+-- The orchestrator inserts a row at run start, updates it at run end. Tracks
+-- mode (mock/live), status, timing, and any error message. transcript and
+-- decisions FK to this table so deleting a run cleans up everything from it.
+create table if not exists runs (
+  id              uuid primary key default gen_random_uuid(),
+  case_id         uuid not null references cases(id) on delete cascade,
+  mode            text not null check (mode in ('mock', 'live')),
+  status          text not null default 'running'
+                  check (status in ('running', 'completed', 'failed', 'escalated')),
+  triggered_by    text,
+  started_at      timestamptz not null default now(),
+  ended_at        timestamptz,
+  duration_ms     integer,
+  error_message   text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+drop trigger if exists runs_set_updated_at on runs;
+create trigger runs_set_updated_at before update on runs
+  for each row execute function set_updated_at();
+
+create index if not exists runs_case_started_idx on runs (case_id, started_at desc);
+create index if not exists runs_status_idx on runs (status);
 
 -- ---------------------------------------------------------------------------
 -- documents — one row per uploaded file, content-addressed by sha256.
 -- ---------------------------------------------------------------------------
--- Raw bytes live in object storage (Backblaze B2 today). We keep the canonical
--- storage_url plus the bucket/key so we can regenerate signed URLs on demand.
--- (case_id, sha256) unique → re-uploading the same file is idempotent.
--- document_kind preserves the existing ClaimInput.documents[].kind field
--- ("police report", "First Notice of Loss", etc.).
 create table if not exists documents (
-  id                  uuid primary key default gen_random_uuid(),
-  case_id             uuid not null references cases(id) on delete cascade,
-  filename            text not null,
-  document_kind       text,
-  mime_type           text not null,
-  sha256              text not null,
-  file_size_bytes     bigint not null,
-  storage_provider    text not null default 'backblaze'
-                      check (storage_provider in ('backblaze', 'supabase', 's3')),
-  storage_bucket      text not null,
-  storage_key         text not null,
-  storage_url         text,
-  page_count          integer,
-  status              text not null default 'pending'
-                      check (status in ('pending', 'uploaded', 'extracting', 'extracted', 'failed')),
-  extraction_error    text,
-  ingested_at         timestamptz,
-  created_at          timestamptz not null default now(),
-  updated_at          timestamptz not null default now(),
+  id                      uuid primary key default gen_random_uuid(),
+  case_id                 uuid not null references cases(id) on delete cascade,
+  filename                text not null,
+  document_kind           text,
+  mime_type               text not null,
+  sha256                  text not null,
+  file_size_bytes         bigint not null,
+  storage_provider        text not null default 'backblaze'
+                          check (storage_provider in ('backblaze', 'supabase', 's3')),
+  storage_bucket          text not null,
+  storage_key             text not null,
+  storage_url             text,
+  page_count              integer,
+  status                  text not null default 'pending'
+                          check (status in ('pending', 'uploaded', 'extracting', 'extracted', 'failed')),
+  extraction_error        text,
+  extraction_duration_ms  integer,
+  retry_count             integer not null default 0,
+  last_retry_at           timestamptz,
+  ingested_at             timestamptz,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now(),
   unique (case_id, sha256)
 );
 
@@ -108,11 +137,6 @@ create index if not exists documents_sha256_idx on documents (sha256);
 -- ---------------------------------------------------------------------------
 -- document_pages — one row per logical page of extracted text.
 -- ---------------------------------------------------------------------------
--- "Page" is a logical unit: PDFs use native pages; DOCX/HTML use headings or
--- section boundaries; plain text is a single page. Granularity matters because
--- Fact nodes downstream reference (document_id, page_number).
--- The GIN index supports Postgres full-text search ("grep-like" queries) as a
--- built-in alternative to vector embeddings.
 create table if not exists document_pages (
   id                  uuid primary key default gen_random_uuid(),
   document_id         uuid not null references documents(id) on delete cascade,
@@ -121,8 +145,13 @@ create table if not exists document_pages (
   char_count          integer not null,
   extraction_metadata jsonb,
   created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
   unique (document_id, page_number)
 );
+
+drop trigger if exists document_pages_set_updated_at on document_pages;
+create trigger document_pages_set_updated_at before update on document_pages
+  for each row execute function set_updated_at();
 
 create index if not exists document_pages_document_id_idx on document_pages (document_id);
 create index if not exists document_pages_text_fts_idx on document_pages
@@ -131,31 +160,25 @@ create index if not exists document_pages_text_fts_idx on document_pages
 -- ---------------------------------------------------------------------------
 -- statutes — public legal text referenced by node citations.
 -- ---------------------------------------------------------------------------
--- statute_id is globally unique (e.g. "CA-1431.2"); jurisdictions are not
--- expected to collide on identifier syntax. If they ever do, add a (jurisdiction,
--- statute_id) unique constraint in a follow-up migration.
 create table if not exists statutes (
   id                  uuid primary key default gen_random_uuid(),
   statute_id          text unique not null,
   jurisdiction        text not null,
   title               text not null,
   text                text not null,
-  created_at          timestamptz not null default now()
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
 );
+
+drop trigger if exists statutes_set_updated_at on statutes;
+create trigger statutes_set_updated_at before update on statutes
+  for each row execute function set_updated_at();
 
 create index if not exists statutes_jurisdiction_idx on statutes (jurisdiction);
 
 -- ---------------------------------------------------------------------------
 -- nodes — the Evidence Ledger as a typed graph (Gowtham's lane).
 -- ---------------------------------------------------------------------------
--- node_id is the human-readable display id ("F1", "P1", "V1"...), unique within
--- a case. type drives the schema of props (Fact carries statement+source, Party
--- carries name+role, etc.); the CHECK constraint enumerates supported types and
--- can be extended with ALTER TABLE.
--- For Fact nodes, verbatim_quote + source_document_id + source_page_number form
--- the anchor the Fact Gate verifies against extracted_text in document_pages.
--- source_document_id uses ON DELETE SET NULL so historical facts survive if
--- their source document is deleted (audit trail preservation).
 create table if not exists nodes (
   id                  uuid primary key default gen_random_uuid(),
   case_id             uuid not null references cases(id) on delete cascade,
@@ -183,11 +206,6 @@ create index if not exists nodes_source_document_id_idx on nodes (source_documen
 -- ---------------------------------------------------------------------------
 -- edges — typed relationships between nodes.
 -- ---------------------------------------------------------------------------
--- edge types capture the semantic graph: mentioned_in (Fact → Document),
--- corroborates / contradicts (Fact → Fact), attributed_to (Fact → Party),
--- governed_by (Event → Statute), caused (Event → Damage), involves (Event →
--- Party), occurred_at (Event → Location), drives (Party → Vehicle).
--- Both directions are indexed for graph traversal in either direction.
 create table if not exists edges (
   id                  uuid primary key default gen_random_uuid(),
   case_id             uuid not null references cases(id) on delete cascade,
@@ -198,22 +216,26 @@ create table if not exists edges (
                       check (type in ('mentioned_in', 'corroborates', 'contradicts', 'attributed_to', 'governed_by', 'caused', 'involves', 'occurred_at', 'drives')),
   props               jsonb not null default '{}'::jsonb,
   created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
   unique (case_id, edge_id)
 );
+
+drop trigger if exists edges_set_updated_at on edges;
+create trigger edges_set_updated_at before update on edges
+  for each row execute function set_updated_at();
 
 create index if not exists edges_case_id_from_id_type_idx on edges (case_id, from_id, type);
 create index if not exists edges_case_id_to_id_type_idx on edges (case_id, to_id, type);
 
 -- ---------------------------------------------------------------------------
--- transcript — Band-room postings persisted per pipeline run (Sudharsan's lane).
+-- transcript — Band-room postings persisted per pipeline run.
 -- ---------------------------------------------------------------------------
--- run_id is generated by the orchestrator at the start of each pipeline call.
--- (run_id, seq) is the canonical ordering; (case_id, run_id, seq) is the
--- query index for "show me run X of case Y in order."
+-- posted_at is the canonical ordering field (when the agent actually posted).
+-- created_at / updated_at track row lifecycle for consistency with other tables.
 create table if not exists transcript (
   id                  uuid primary key default gen_random_uuid(),
   case_id             uuid not null references cases(id) on delete cascade,
-  run_id              uuid not null,
+  run_id              uuid not null references runs(id) on delete cascade,
   seq                 integer not null,
   agent_name          text not null,
   color               integer not null,
@@ -221,22 +243,26 @@ create table if not exists transcript (
                       check (kind in ('message', 'handoff', 'gate', 'decision', 'system')),
   content             text not null,
   posted_at           timestamptz not null default now(),
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
   unique (run_id, seq)
 );
+
+drop trigger if exists transcript_set_updated_at on transcript;
+create trigger transcript_set_updated_at before update on transcript
+  for each row execute function set_updated_at();
 
 create index if not exists transcript_case_run_seq_idx on transcript (case_id, run_id, seq);
 
 -- ---------------------------------------------------------------------------
--- decisions — the final FinalDecision produced by orchestration.
+-- decisions — the FinalDecision produced by orchestration.
 -- ---------------------------------------------------------------------------
--- One row per pipeline run. secondary_decision holds Adjudicator B's full
--- output (faultTable + percentage + reasoning) when dual-adjudication is on.
--- fault_table is jsonb because its shape is { factId, favors, weight }[] —
--- documented in pydantic types.py, validated at write time.
+-- finalized_at is the canonical "when the decision became final" timestamp.
+-- created_at / updated_at track row lifecycle.
 create table if not exists decisions (
   id                       uuid primary key default gen_random_uuid(),
   case_id                  uuid not null references cases(id) on delete cascade,
-  run_id                   uuid not null unique,
+  run_id                   uuid not null unique references runs(id) on delete cascade,
   other_driver_fault_pct   numeric(5, 2) not null
                            check (other_driver_fault_pct >= 0 and other_driver_fault_pct <= 100),
   confidence               numeric(3, 2) not null
@@ -255,10 +281,82 @@ create table if not exists decisions (
   secondary_decision       jsonb,
   letter                   text not null,
   audit_hash               text,
-  finalized_at             timestamptz not null default now()
+  finalized_at             timestamptz not null default now(),
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now()
 );
 
+drop trigger if exists decisions_set_updated_at on decisions;
+create trigger decisions_set_updated_at before update on decisions
+  for each row execute function set_updated_at();
+
 create index if not exists decisions_case_id_idx on decisions (case_id);
+
+-- ---------------------------------------------------------------------------
+-- Documentation: table + column comments (surfaced in Supabase dashboard
+-- and any auto-generated OpenAPI / dbdocs output).
+-- ---------------------------------------------------------------------------
+
+comment on table cases is
+  'One row per subrogation case. Three boolean flags drive the cross-stage handoff: ingestion_complete (Aman→Gowtham), ledger_complete (Gowtham→Sudharsan), finalized (Sudharsan→human).';
+comment on column cases.tenant_id is
+  'Default UUID supports single-tenant demo writes; multi-tenant deployments override per request.';
+comment on column cases.case_id is
+  'Human-readable identifier (e.g. CLM-2026-0427). Unique within tenant.';
+comment on column cases.last_run_at is
+  'Most recent pipeline run timestamp; denormalized for UI sort. Updated by the orchestrator.';
+comment on column cases.metadata is
+  'Free-form JSONB escape hatch for case-level fields (UI hints, integration IDs, labels) that do not warrant a column.';
+
+comment on table runs is
+  'One row per pipeline execution. Replaces the bare run_id UUID. Orchestrator inserts at run start, updates at run end.';
+comment on column runs.mode is
+  'mock = deterministic offline; live = real provider calls.';
+comment on column runs.status is
+  'running while the pipeline is active; completed/failed/escalated when finished.';
+comment on column runs.triggered_by is
+  'Free-text source label (ui, cron, manual, etc.) for run provenance.';
+comment on column runs.duration_ms is
+  'Wall-clock duration; populated when ended_at fills. Performance monitoring only.';
+
+comment on table documents is
+  'One row per uploaded file. Raw bytes live in object storage (Backblaze B2); we keep storage_bucket + storage_key so signed URLs can be regenerated.';
+comment on column documents.sha256 is
+  'Content-addressing key. (case_id, sha256) is unique → re-uploading the same file is idempotent.';
+comment on column documents.document_kind is
+  'Human-readable category preserved from the original ClaimInput shape: "police report", "FNOL", "witness statement", etc.';
+comment on column documents.status is
+  'Lifecycle: pending → uploaded → extracting → extracted (or failed).';
+comment on column documents.extraction_duration_ms is
+  'Wall-clock duration of the extraction job; populated by the worker on completion. Performance monitoring only.';
+comment on column documents.retry_count is
+  'Number of extraction attempts so far. Incremented by the worker on each transient failure. 0 = never retried.';
+comment on column documents.last_retry_at is
+  'Timestamp of the most recent retry attempt. Null until first retry. Used for debugging stalled jobs.';
+
+comment on table document_pages is
+  'One row per logical page of extracted text. PDFs use native pages; DOCX/HTML use heading boundaries; plain text is a single page. Fact nodes reference (document_id, page_number) for the Fact Gate verbatim-quote check.';
+comment on column document_pages.extracted_text is
+  'Plain extracted text. Postgres TOAST handles large values automatically.';
+
+comment on table statutes is
+  'Public legal text the Citation Gate validates statute citations against. statute_id is globally unique (e.g. CA-1431.2).';
+
+comment on table nodes is
+  'Evidence Ledger as a typed graph (Gowtham''s lane). node_id is the human-readable display id (F1, P1, V1...). Fact nodes carry verbatim_quote + (source_document_id, source_page_number) which the Fact Gate verifies against document_pages.extracted_text.';
+comment on column nodes.source_document_id is
+  'For Fact nodes: the source. ON DELETE SET NULL so historical facts survive their source document being removed (audit-trail preservation).';
+
+comment on table edges is
+  'Typed graph relationships. mentioned_in (Fact → Document) is the corroboration primitive — one Fact node can have many mentioned_in edges, one per source document that asserts it. This is how we model "same observation across multiple sources" without dedup.';
+
+comment on table transcript is
+  'Band-room postings per pipeline run. (run_id, seq) is the canonical ordering. posted_at is the agent''s post timestamp; created_at is the row insert timestamp (usually identical).';
+
+comment on table decisions is
+  'One row per pipeline run holding the FinalDecision payload. secondary_decision carries Adjudicator B''s full output when dual-adjudication is on. fault_table is the structured {factId, favors, weight}[] array.';
+comment on column decisions.audit_hash is
+  'SHA-256 of (transcript + decision + letter) at finalization. Tamper-evident.';
 
 -- ============================================================================
 -- End of migration 001

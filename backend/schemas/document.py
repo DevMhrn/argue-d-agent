@@ -42,6 +42,9 @@ class DocumentRow(BaseModel):
     page_count: Optional[int] = None
     status: DocumentStatus
     extraction_error: Optional[str] = None
+    extraction_duration_ms: Optional[int] = None
+    retry_count: int
+    last_retry_at: Optional[datetime] = None
     ingested_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -71,6 +74,10 @@ class DocumentStatusUpdate(BaseModel):
 
     status: Optional[DocumentStatus] = None
     extraction_error: Optional[str] = None
+    extraction_duration_ms: Optional[int] = None
+    retry_count: Optional[int] = None
+    last_retry_at: Optional[datetime] = None
     ingested_at: Optional[datetime] = None
     page_count: Optional[int] = None
+    storage_url: Optional[str] = None
     storage_url: Optional[str] = None
