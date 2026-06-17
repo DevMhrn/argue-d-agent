@@ -7,6 +7,7 @@ the application schemas are the storage-layer view, the app/types models are
 the in-memory pipeline view.
 """
 from .case import CaseRow, CaseCreate, CaseStatusUpdate, DEMO_TENANT_ID
+from .run import RunRow, RunCreate, RunUpdate, RunMode, RunStatus
 from .document import (
     DocumentRow,
     DocumentCreate,
@@ -32,6 +33,11 @@ __all__ = [
     "CaseRow",
     "CaseCreate",
     "CaseStatusUpdate",
+    "RunRow",
+    "RunCreate",
+    "RunUpdate",
+    "RunMode",
+    "RunStatus",
     "DocumentRow",
     "DocumentCreate",
     "DocumentStatusUpdate",

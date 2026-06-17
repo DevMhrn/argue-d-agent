@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Lumen — runner
+# =============================================================================
+# Single entry point for the day-to-day commands. Auto-creates the Python venv
+# at .venv/ on first run, installs requirements.txt, then dispatches to the
+# right sub-command.
+#
+# Usage:
+#   ./run.sh setup       Create venv + install deps (idempotent)
+#   ./run.sh server      Start the FastAPI server     (python -m backend.app.run_server)
+#   ./run.sh worker      Start the arq extraction worker
+#   ./run.sh demo        Run the CLI demo (offline mock)
+#   ./run.sh seed        Load the synthetic case into Supabase
+#   ./run.sh ingest      Start BOTH server and worker (foreground, side-by-side logs)
+#   ./run.sh typecheck   Smoke-import test for the Python packages
+#   ./run.sh clean       Wipe .venv/ (you almost never want this)
+#
+# Environment lives in backend/.env. Copy from .env.example and fill in.
+# =============================================================================
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+VENV=".venv"
+PYTHON="${VENV}/bin/python"
+PIP="${VENV}/bin/pip"
+ARQ="${VENV}/bin/arq"
+
+# Colors for the help / status output. Disable if not a tty.
+if [[ -t 1 ]]; then
+  C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'; C_BLUE='\033[0;36m'; C_RESET='\033[0m'
+else
+  C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_RESET=''
+fi
+
+ensure_venv() {
+  if [[ ! -d "$VENV" ]]; then
+    printf "${C_BLUE}→ Creating virtualenv at %s${C_RESET}\n" "$VENV"
+    python3 -m venv "$VENV"
+    "$PIP" install --upgrade pip --quiet
+    printf "${C_BLUE}→ Installing requirements.txt${C_RESET}\n"
+    "$PIP" install -r requirements.txt --quiet
+    printf "${C_GREEN}✓ venv ready${C_RESET}\n"
+  fi
+}
+
+cmd_setup() {
+  ensure_venv
+  printf "${C_BLUE}→ Re-syncing requirements (idempotent)${C_RESET}\n"
+  "$PIP" install -r requirements.txt --quiet
+  printf "${C_GREEN}✓ setup complete${C_RESET}\n"
+  printf "  python:      %s\n" "$("$PYTHON" --version)"
+  printf "  venv path:   %s\n" "$VENV"
+  printf "  env file:    backend/.env\n"
+}
+
+cmd_server() {
+  ensure_venv
+  ensure_env
+  printf "${C_BLUE}→ Starting FastAPI server${C_RESET}\n"
+  exec "$PYTHON" -m backend.app.run_server
+}
+
+cmd_worker() {
+  ensure_venv
+  ensure_env
+  printf "${C_BLUE}→ Starting arq extraction worker${C_RESET}\n"
+  exec "$ARQ" backend.ingestion.worker.WorkerSettings
+}
+
+cmd_demo() {
+  ensure_venv
+  printf "${C_BLUE}→ Running CLI demo (mock mode)${C_RESET}\n"
+  exec "$PYTHON" -m backend.app.run_demo
+}
+
+cmd_seed() {
+  ensure_venv
+  ensure_env
+  printf "${C_BLUE}→ Seeding synthetic Alex/Jordan case into Supabase${C_RESET}\n"
+  exec "$PYTHON" -m scripts.seed_synthetic
+}
+
+cmd_ingest() {
+  # Start the server + worker side by side so logs interleave in one terminal.
+  ensure_venv
+  ensure_env
+  printf "${C_BLUE}→ Starting server + worker (Ctrl-C kills both)${C_RESET}\n"
+  trap 'kill 0' EXIT INT TERM
+  "$PYTHON" -m backend.app.run_server &
+  "$ARQ" backend.ingestion.worker.WorkerSettings &
+  wait
+}
+
+cmd_typecheck() {
+  ensure_venv
+  printf "${C_BLUE}→ Smoke-importing backend packages${C_RESET}\n"
+  "$PYTHON" -c "
+import backend
+import backend.app.server
+import backend.app.pipeline
+import backend.ingestion
+import backend.ingestion.routes
+import backend.ingestion.service
+import backend.ingestion.worker
+import backend.ingestion.adapters
+import backend.schemas
+print('✓ imports OK')
+"
+}
+
+cmd_clean() {
+  printf "${C_YELLOW}⚠ Removing %s${C_RESET}\n" "$VENV"
+  rm -rf "$VENV"
+  printf "${C_GREEN}✓ clean${C_RESET}\n"
+}
+
+ensure_env() {
+  if [[ ! -f backend/.env ]]; then
+    printf "${C_YELLOW}⚠ backend/.env not found. Copy from .env.example and fill in.${C_RESET}\n"
+    exit 1
+  fi
+}
+
+usage() {
+  cat <<EOF
+${C_GREEN}Lumen — runner${C_RESET}
+
+Usage: ./run.sh <command>
+
+Commands:
+  ${C_BLUE}setup${C_RESET}       Create venv (.venv/) and install requirements.txt
+  ${C_BLUE}server${C_RESET}      Start the FastAPI server (uvicorn, port from \$PORT)
+  ${C_BLUE}worker${C_RESET}      Start the arq extraction worker
+  ${C_BLUE}ingest${C_RESET}      Start BOTH server and worker (foreground, Ctrl-C kills both)
+  ${C_BLUE}demo${C_RESET}        Run the CLI demo (offline mock mode, no keys needed)
+  ${C_BLUE}seed${C_RESET}        Load the synthetic Alex/Jordan case into Supabase
+  ${C_BLUE}typecheck${C_RESET}   Smoke-import all packages
+  ${C_BLUE}clean${C_RESET}       Wipe .venv/
+
+Configuration: backend/.env (copy from .env.example).
+EOF
+}
+
+case "${1:-help}" in
+  setup)      cmd_setup ;;
+  server)     cmd_server ;;
+  worker)     cmd_worker ;;
+  ingest)     cmd_ingest ;;
+  demo)       cmd_demo ;;
+  seed)       cmd_seed ;;
+  typecheck)  cmd_typecheck ;;
+  clean)      cmd_clean ;;
+  help|-h|--help) usage ;;
+  *) printf "${C_YELLOW}Unknown command: %s${C_RESET}\n\n" "$1"; usage; exit 1 ;;
+esac

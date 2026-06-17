@@ -5,9 +5,13 @@ Public surface:
     service.IngestService    Top-level orchestrator
     repository.IngestionRepository   Typed Supabase queries
     storage.ObjectStorage    Backblaze B2 wrapper
-    queue.ExtractionQueue    Redis-backed async job queue
+    queue.ExtractionQueue    Redis-backed async job queue (enqueue side)
+    worker.WorkerSettings    arq worker entry point (run: arq backend.ingestion.worker.WorkerSettings)
+    adapters.load_case_from_db   Seam for orchestration to read a ClaimInput from the DB
     extractors.*             Per-format text extractors
 """
+from .adapters import load_case_from_db
+from .db import close_pool, get_pool
 from .extractors import (
     ExtractedDocument,
     ExtractedPage,
@@ -34,4 +38,7 @@ __all__ = [
     "ExtractedPage",
     "get_extractor",
     "supported_mime_types",
+    "load_case_from_db",
+    "get_pool",
+    "close_pool",
 ]

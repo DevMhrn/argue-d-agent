@@ -5,6 +5,7 @@ Request and response shapes are Pydantic models so the OpenAPI doc is auto-gener
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
@@ -13,19 +14,24 @@ from pydantic import BaseModel, Field
 
 from backend.schemas import CaseCreate, CaseRow, DocumentRow
 
+from .queue import ExtractionQueue
+from .repository import IngestionRepository
 from .service import IngestService, PreparedUpload
+from .storage import ObjectStorage
 
 router = APIRouter(prefix="/api/ingest", tags=["ingestion"])
 
 
-# Dependency injection — replaced with a real factory once Supabase + B2 + Redis
-# credentials are configured. For now, attempting to call any route will raise
-# a clear NotImplementedError from the underlying stubs.
+# Dependency injection — one IngestService per FastAPI process, lazily built
+# on first request. lru_cache(maxsize=1) makes this a process-wide singleton.
+# Credentials are read from env at construction time; missing vars raise a
+# clear RuntimeError so the failure surfaces immediately.
+@lru_cache(maxsize=1)
 def get_service() -> IngestService:
-    raise NotImplementedError(
-        "IngestService not yet wired — set SUPABASE_URL, SUPABASE_SERVICE_KEY, "
-        "B2_KEY_ID, B2_APPLICATION_KEY, B2_BUCKET, REDIS_URL."
-    )
+    repo = IngestionRepository()
+    storage = ObjectStorage()
+    queue = ExtractionQueue()
+    return IngestService(repo=repo, storage=storage, queue=queue)
 
 
 # ---- request / response shapes ----------------------------------------------

@@ -2,10 +2,16 @@
 from __future__ import annotations
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load env from both backend/.env and the repo-root .env (whichever you populated),
+# regardless of where Python is invoked from. backend/app/config.py → parent.parent
+# is backend/; one level up is the repo root. First value wins (override=False).
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=_BACKEND_DIR / ".env")
+load_dotenv(dotenv_path=_BACKEND_DIR.parent / ".env")
 
 
 @dataclass(frozen=True)
