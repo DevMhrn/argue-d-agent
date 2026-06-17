@@ -62,10 +62,24 @@ class StorageConfig:
 
 @dataclass(frozen=True)
 class SignedUpload:
-    """Everything the browser needs to POST a file directly to object storage."""
+    """Everything the browser needs to PUT a file directly to object storage.
+
+    Backblaze B2's S3-compatible API does NOT implement POST policies (returns
+    HTTP 501 NotImplemented). We use pre-signed PUT URLs instead — universally
+    supported and simpler client-side. The browser sends:
+
+        PUT <url>
+        Content-Type: <mime_type from headers>
+        <raw bytes as body>
+
+    File-size limit is enforced backend-side at the PrepareUploadRequest
+    validation layer (50 MB hard cap), since PUT URLs can't carry policy
+    conditions the way POST policies can.
+    """
 
     url: str
-    fields: dict[str, str]   # form fields the browser must include
+    method: str             # always "PUT" for now
+    headers: dict[str, str] # request headers the browser must include
     key: str
     expires_at_unix: int
 
@@ -99,27 +113,32 @@ class ObjectStorage:
         mime_type: str,
         *,
         expires_in: int = 300,
-        max_size_bytes: int = 50 * 1024 * 1024,
+        max_size_bytes: int = 50 * 1024 * 1024,  # noqa: ARG002 — kept for caller signature
     ) -> SignedUpload:
-        """Return a pre-signed POST policy so the browser can upload directly.
+        """Return a pre-signed PUT URL so the browser can upload directly.
 
-        The browser must POST as multipart/form-data with `fields` first and the
-        file as the last form field named "file". Conditions enforce size limit
-        and exact content-type match — uploads outside these are rejected by B2.
+        Why PUT and not POST: B2's S3-compatible endpoint returns 501
+        NotImplemented for POST policy uploads. The PUT route is universally
+        supported across S3-compatible stores (B2, AWS, R2, MinIO).
+
+        The signature covers the bucket, key, and HTTP method — the browser
+        must echo the Content-Type that was signed. Size validation happens
+        at the PrepareUploadRequest layer before this method is called.
         """
-        response = self._client.generate_presigned_post(
-            Bucket=self._config.bucket,
-            Key=key,
-            Fields={"Content-Type": mime_type},
-            Conditions=[
-                {"Content-Type": mime_type},
-                ["content-length-range", 1, max_size_bytes],
-            ],
+        url = self._client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self._config.bucket,
+                "Key": key,
+                "ContentType": mime_type,
+            },
             ExpiresIn=expires_in,
+            HttpMethod="PUT",
         )
         return SignedUpload(
-            url=response["url"],
-            fields=response["fields"],
+            url=url,
+            method="PUT",
+            headers={"Content-Type": mime_type},
             key=key,
             expires_at_unix=int(time.time()) + expires_in,
         )

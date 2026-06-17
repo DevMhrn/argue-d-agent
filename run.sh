@@ -8,8 +8,10 @@
 #
 # Usage:
 #   ./run.sh setup       Create venv + install deps (idempotent)
-#   ./run.sh server      Start the FastAPI server     (python -m backend.app.run_server)
+#   ./run.sh server      Start the FastAPI server on :8000
 #   ./run.sh worker      Start the arq extraction worker
+#   ./run.sh frontend    Start the Next.js dev server on :3000 (Vite-style HMR)
+#   ./run.sh dev         Start server + worker + frontend together (3 panes)
 #   ./run.sh demo        Run the CLI demo (offline mock)
 #   ./run.sh seed        Load the synthetic case into Supabase
 #   ./run.sh ingest      Start BOTH server and worker (foreground, side-by-side logs)
@@ -93,6 +95,32 @@ cmd_ingest() {
   wait
 }
 
+cmd_frontend() {
+  # Next.js dev server on :3000. The first run installs deps under frontend/node_modules.
+  if [[ ! -d frontend/node_modules ]]; then
+    printf "${C_BLUE}→ Installing frontend deps (first run)${C_RESET}\n"
+    (cd frontend && pnpm install --silent)
+  fi
+  printf "${C_BLUE}→ Starting Next.js dev server on http://localhost:3000${C_RESET}\n"
+  exec sh -c 'cd frontend && pnpm dev'
+}
+
+cmd_dev() {
+  # Backend + worker + frontend in one terminal. Ctrl-C kills all three.
+  ensure_venv
+  ensure_env
+  if [[ ! -d frontend/node_modules ]]; then
+    printf "${C_BLUE}→ Installing frontend deps (first run)${C_RESET}\n"
+    (cd frontend && pnpm install --silent)
+  fi
+  printf "${C_BLUE}→ Starting backend (:8000) + worker + Next.js (:3000). Ctrl-C kills all.${C_RESET}\n"
+  trap 'kill 0' EXIT INT TERM
+  "$PYTHON" -m backend.app.run_server &
+  "$ARQ" backend.ingestion.worker.WorkerSettings &
+  (cd frontend && pnpm dev) &
+  wait
+}
+
 cmd_typecheck() {
   ensure_venv
   printf "${C_BLUE}→ Smoke-importing backend packages${C_RESET}\n"
@@ -131,8 +159,10 @@ Usage: ./run.sh <command>
 
 Commands:
   ${C_BLUE}setup${C_RESET}       Create venv (.venv/) and install requirements.txt
-  ${C_BLUE}server${C_RESET}      Start the FastAPI server (uvicorn, port from \$PORT)
+  ${C_BLUE}server${C_RESET}      Start the FastAPI server (uvicorn, on :8000)
   ${C_BLUE}worker${C_RESET}      Start the arq extraction worker
+  ${C_BLUE}frontend${C_RESET}    Start the Next.js dev server on :3000
+  ${C_BLUE}dev${C_RESET}         Start backend + worker + frontend together (one terminal)
   ${C_BLUE}ingest${C_RESET}      Start BOTH server and worker (foreground, Ctrl-C kills both)
   ${C_BLUE}demo${C_RESET}        Run the CLI demo (offline mock mode, no keys needed)
   ${C_BLUE}seed${C_RESET}        Load the synthetic Alex/Jordan case into Supabase
@@ -147,6 +177,8 @@ case "${1:-help}" in
   setup)      cmd_setup ;;
   server)     cmd_server ;;
   worker)     cmd_worker ;;
+  frontend)   cmd_frontend ;;
+  dev)        cmd_dev ;;
   ingest)     cmd_ingest ;;
   demo)       cmd_demo ;;
   seed)       cmd_seed ;;

@@ -49,7 +49,8 @@ class PrepareUploadRequest(BaseModel):
 class PrepareUploadResponse(BaseModel):
     document_id: UUID
     upload_url: str
-    upload_fields: dict[str, str]
+    upload_method: str = "PUT"
+    upload_headers: dict[str, str]
     storage_key: str
 
 
@@ -91,7 +92,8 @@ async def sign_upload(
     return PrepareUploadResponse(
         document_id=prepared.document_id,
         upload_url=prepared.upload.url,
-        upload_fields=prepared.upload.fields,
+        upload_method=prepared.upload.method,
+        upload_headers=prepared.upload.headers,
         storage_key=prepared.upload.key,
     )
 

@@ -10,9 +10,21 @@ Insurance companies leave an estimated **$15–20B/year** uncollected because ch
 
 The whole agent debate runs in **mock mode** — deterministic, offline, zero keys.
 
+**Full dev environment (backend + worker + frontend in one terminal):**
+
+```bash
+./run.sh setup        # first time only — builds the Python venv
+./run.sh dev          # FastAPI :8000 + arq worker + Next.js :3000
+```
+
+Open <http://localhost:3000>. The Next.js dev server proxies `/api/*` to the FastAPI backend, so the browser sees same-origin (no CORS).
+
+**Just the agent debate** (no ingestion, no frontend):
+
 ```bash
 pnpm install
-pnpm demo
+pnpm demo                                      # legacy Node demo, CLI only
+.venv/bin/python -m backend.app.run_demo       # canonical Python demo, CLI only
 ```
 
 You'll see the live Band-room transcript: facts get extracted, the Advocate and the Opposing red team **disagree**, the **Citation Gate rejects an uncited claim** and forces a fix, a neutral Adjudicator sets the fault % and recovery amount, and a large claim **escalates to a human**.
@@ -54,9 +66,13 @@ backend/           Production Python backend (FastAPI, Band SDK, ingestion, ledg
   app/             Orchestration pipeline (agents, gates, room, server, demo)
   schemas/         Pydantic models mirroring DB tables (cases, documents, nodes, edges, ...)
   ingestion/       File uploads, per-format extractors, B2 storage, async queue
-  ledger/          Graph builder (stub — Gowtham's lane)
+  ledger/          Graph builder (Gowtham's lane)
   db/              SQL migrations + schema overview
-frontend/          Static UI (HTML/JS/CSS) served by the FastAPI app
+frontend/          Next.js 16 + Tailwind v4 (App Router) — recovery-operations console
+  app/             page.tsx routes (/, /cases/new, /cases/[id])
+  components/      UploadZone, FileRow, GateRail, LedgerPanel, RoomPanel, DecisionPanel
+  lib/             api.ts, sha256.ts, useRunStream.ts (typed client + EventSource hook)
+  _legacy/         The original static HTML/JS/CSS, kept as a reference
 src/               Legacy TypeScript demo (kept for offline `pnpm demo`)
 server/            Legacy Express server
 data/              Fixtures: sample_claim_clean.json, statutes.json, cases.json

@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   Lumen — dark "mission control" theme. Ported from frontend/_legacy/styles.css
+   into Tailwind v4's @theme system so utilities can reference the design tokens
+   directly (e.g. `bg-panel`, `text-muted`, `border-border-soft`).
+   =========================================================================== */
+
+@theme {
+  /* surfaces */
+  --color-bg: #080b14;
+  --color-panel: #0e1422;
+  --color-panel-2: #121a2c;
+  --color-panel-3: #161f34;
+  --color-border: #1f2a42;
+  --color-border-soft: #18203466;
+
+  /* text */
+  --color-text: #e8edf7;
+  --color-muted: #8b95ad;
+  --color-muted-2: #626c83;
+
+  /* accents */
+  --color-accent: #5b8cff;
+  --color-accent-2: #38bdf8;
+  --color-ok: #34d399;
+  --color-warn: #f5b942;
+  --color-bad: #fb6f7c;
+  --color-gold: #f4c860;
+
+  /* agent hues — used by the live room transcript */
+  --color-agent-intake: #94a3b8;
+  --color-agent-evidence: #5eead4;
+  --color-agent-advocate: #5b9bff;
+  --color-agent-opposing: #fb7185;
+  --color-agent-adj-a: #f4c860;
+  --color-agent-adj-b: #fb923c;
+  --color-agent-verifier: #c084fc;
+  --color-agent-drafter: #a78bfa;
+
+  /* radii + shadow */
+  --radius-card: 14px;
+  --radius-pill: 9px;
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
+
+  /* fonts inherited from layout.tsx (Geist + Geist Mono) */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+}
+
+/* Ambient gradient on the body — the same radial glow the legacy console used. */
+html,
+body {
+  height: 100%;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #11203b 0%, transparent 60%),
+    var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar polish for the dark surfaces. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-panel-3);
+  border-radius: 5px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+}
+
+/* Subtle focus ring matching the accent — better than the default browser blue. */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reusable form input class (used by /cases/new). Tailwind v4 doesn't ship a
+   form-input preset by default, so we hand-roll a tiny one keyed off the
+   design tokens above. */
+.input {
+  background: var(--color-panel-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}

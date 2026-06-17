@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -20,6 +21,7 @@ from .providers import is_mock
 from .room import make_room, Posting
 from .pipeline import run_lumen
 from .types import ClaimInput, Statute
+from backend.ingestion.routes import router as ingestion_router
 
 # Pace the mock so the live web room is watchable.
 os.environ.setdefault("LUMEN_MOCK_DELAY_MS", "650")
@@ -30,6 +32,23 @@ DATA = ROOT / "data"
 FRONTEND = ROOT / "frontend"
 
 app = FastAPI(title="Lumen — Subrogation Recovery Intelligence")
+
+# CORS for the Next.js dev server. In dev, Next.js on :3000 proxies /api/* via
+# next.config.ts rewrites so requests arrive same-origin and CORS isn't hit —
+# this is the belt-and-braces fallback for direct browser → backend calls
+# (e.g. EventSource bypassing the proxy, or a deployed frontend on a different
+# origin in production).
+_DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_DEV_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _load_cases() -> list[dict]:
@@ -118,15 +137,19 @@ async def api_decision(request: Request):
     return {"ok": True, **body}
 
 
-@app.post("/api/ingest")
-async def api_ingest():
-    # SEAM for the teammate's ingestion pipeline (image OCR / audio ASR / large-doc chunking).
-    return {
-        "ok": True,
-        "status": "pending_pipeline",
-        "message": "Evidence ingestion (OCR / ASR / large-doc chunking) is handled by the ingestion service. Wire it in here.",
-    }
+# Mount the ingestion lane's real router (/api/ingest/case, /sign-upload,
+# /commit, /status/{id}, /finalize/{id}). This is what the frontend's upload
+# flow calls. The router builds its IngestService on first request via
+# lru_cache; missing credentials surface as a clear RuntimeError at that point.
+app.include_router(ingestion_router)
 
 
 # Serve the frontend (must be mounted last so /api/* routes win).
-app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="static")
+# In dev, the Next.js dev server on :3000 is the UI and this mount is skipped.
+# In prod, a Next.js static export under frontend/out/ gets served from here.
+_FRONTEND_BUILD = FRONTEND / "out"
+if _FRONTEND_BUILD.is_dir() and (_FRONTEND_BUILD / "index.html").exists():
+    app.mount("/", StaticFiles(directory=str(_FRONTEND_BUILD), html=True), name="static")
+elif (FRONTEND / "index.html").exists():
+    # Legacy static UI path (kept for the _legacy/ fallback).
+    app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="static")
