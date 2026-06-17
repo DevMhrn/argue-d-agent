@@ -46,6 +46,13 @@ async def main() -> None:
     ledger = graph_to_evidence_ledger(graph)
     print(f"  Projects to EvidenceLedger with {len(ledger.facts)} Fact(s) for the debate lane.")
 
+    # Real persistence (needs SUPABASE_URL + SUPABASE_SERVICE_KEY and applied migrations).
+    if "--persist" in sys.argv:
+        from .repository import LedgerRepository
+        repo = LedgerRepository.from_env()
+        case_uuid = repo.persist_case_graph(claim, graph)
+        print(f"\n  ✓ Persisted to Supabase — case {case_uuid}: {len(nodes)} nodes, {len(edges)} edges, ledger_complete=true.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -14,8 +14,11 @@ pdfplumber>=0.11      # native PDF text extraction
 python-docx>=1.1      # .docx extraction (imported as `docx`)
 beautifulsoup4>=4.12  # HTML extraction (imported as `bs4`)
 
+# --- Persistence: ledger lane writes nodes/edges to Supabase ---
+supabase>=2.5          # cases / nodes / edges / statutes persistence
+
 # --- Ingestion infra (uncomment once wired; see backend/README.md) ---
-# supabase>=2.5        # documents / pages persistence
 # b2sdk>=2.5           # Backblaze B2 object storage
 # arq>=0.26            # async extraction queue
 # redis>=5.0           # arq broker
+# psycopg[binary]>=3.2 # ops only: applying SQL migrations from the CLI

@@ -75,3 +75,32 @@ class LedgerRepository:
 
     def mark_ledger_complete(self, case_id: UUID) -> None:
         self.client.table("cases").update({"ledger_complete": True}).eq("id", str(case_id)).execute()
+
+    _TENANT = "00000000-0000-0000-0000-000000000001"
+
+    def upsert_case(self, claim) -> UUID:
+        """Ensure a `cases` row exists for this claim (by tenant_id, case_id) and return its UUID.
+
+        In the full flow the ingestion lane creates this row; this lets the ledger lane
+        run standalone (e.g. the build_demo --persist path) without ingestion."""
+        payload = {
+            "tenant_id": self._TENANT,
+            "case_id": claim.caseId,
+            "title": f"{claim.insured} v. {claim.otherParty}",
+            "jurisdiction": claim.jurisdiction,
+            "damages_usd": claim.damagesUsd,
+            "insured_name": claim.insured,
+            "other_party_name": claim.otherParty,
+        }
+        res = self.client.table("cases").upsert(payload, on_conflict="tenant_id,case_id").execute()
+        return UUID(res.data[0]["id"])
+
+    def persist_case_graph(self, claim, graph: LedgerGraph) -> UUID:
+        """End-to-end: upsert the case, write the graph's nodes/edges, flip ledger_complete.
+        Returns the case UUID. (source_document_id stays null until ingestion writes documents.)"""
+        case_uuid = self.upsert_case(claim)
+        # Replace any prior graph for an idempotent re-run.
+        self.client.table("nodes").delete().eq("case_id", str(case_uuid)).execute()
+        self.write_graph(case_uuid, graph)
+        self.mark_ledger_complete(case_uuid)
+        return case_uuid
