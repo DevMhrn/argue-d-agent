@@ -122,21 +122,24 @@ cmd_dev() {
 }
 
 cmd_demo_band() {
-  # CLI demo that posts to a REAL Band room (deterministic content). Quickest way
-  # to verify Band connectivity end to end — look for "Posted to real Band room".
+  # CLI demo that posts to a REAL Band room. Content is LIVE (real models) when
+  # provider keys are set; prepend LUMEN_MOCK=1 for a deterministic take.
+  # Look for "Posted to real Band room" to confirm Band connectivity.
   ensure_venv
   ensure_band_config
-  printf "${C_BLUE}→ CLI demo through REAL Band (LUMEN_BAND=1, deterministic content)${C_RESET}\n"
-  export LUMEN_BAND=1 LUMEN_MOCK=1
+  export LUMEN_BAND=1
+  printf "${C_BLUE}→ CLI demo through REAL Band (LUMEN_BAND=1). Content: %s${C_RESET}\n" \
+    "$([[ "${LUMEN_MOCK:-}" == "1" ]] && echo "deterministic (LUMEN_MOCK=1)" || echo "LIVE models")"
   exec "$PYTHON" -m backend.app.run_demo --band
 }
 
 cmd_dev_band() {
-  # Full stack with Band ON + deterministic content — the bulletproof demo config:
-  # all 8 agents coordinate through a real Band room, no live-model flakiness.
+  # Full stack with Band ON. All 8 agents coordinate through a real Band room.
+  # Content is LIVE by default; prepend LUMEN_MOCK=1 for a bulletproof recorded take.
   ensure_band_config
-  printf "${C_GREEN}→ Band ENABLED (LUMEN_BAND=1) + deterministic content (LUMEN_MOCK=1)${C_RESET}\n"
-  export LUMEN_BAND=1 LUMEN_MOCK=1
+  export LUMEN_BAND=1
+  printf "${C_GREEN}→ Band ENABLED (LUMEN_BAND=1). Content: %s${C_RESET}\n" \
+    "$([[ "${LUMEN_MOCK:-}" == "1" ]] && echo "deterministic (LUMEN_MOCK=1)" || echo "LIVE models")"
   cmd_dev
 }
 
