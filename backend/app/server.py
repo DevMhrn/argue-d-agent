@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from .providers import is_mock
 from .room import make_room, Posting
 from .pipeline import run_lumen
+from .run_repository import RunRepository
 from .types import ClaimInput, Statute
 from backend.ingestion.routes import router as ingestion_router
 
@@ -199,10 +201,33 @@ async def api_case(case_id: str):
 
 @app.get("/api/run/{case_id}")
 async def api_run(case_id: str):
-    # Two sources run the same debate. Demo cases (clean/loser) build their ledger
-    # from the bundled claim; real Supabase cases run over the graph the ledger lane
-    # already persisted (ledger != None → run_lumen skips the rebuild).
+    """Open the Argument Room — stream a debate over the case via SSE.
+
+    Two paths depending on `case_id` shape:
+
+    - **UUID (real Supabase case):** load the persisted ledger from `nodes`/
+      `edges`, insert a `runs` row (status='running'), persist every
+      `room.post()` to the `transcript` table as the debate unfolds, then on
+      completion insert a `decisions` row and flip `runs.status='completed'`
+      (or `'failed'` on exception). The `audit_hash` is computed over the
+      PERSISTED transcript + decision rows so what's in the DB is the system
+      of record.
+
+    - **demo id ('clean'/'loser'):** load the bundled claim from
+      `data/sample_claim_*.json`, run in-memory only (no DB writes). Demo
+      cases don't have rows in `cases` so we can't satisfy the FK. The audit
+      hash is computed over the in-memory postings as before.
+
+    For the UUID path, frontend page reload can fetch
+    `/api/runs/{run_id}/transcript` and replay the conversation without
+    re-running the agents — the persisted rows are the source of truth.
+    """
+    # ---- branch on case id shape -------------------------------------------
     ledger = None
+    run_id: Optional[Any] = None  # set on the UUID path
+    run_repo: Optional[RunRepository] = None
+    case_uuid: Optional[Any] = None
+
     if _is_uuid(case_id):
         from uuid import UUID as _UUID
         from backend.ingestion.repository import IngestionRepository
@@ -210,8 +235,8 @@ async def api_run(case_id: str):
 
         case_uuid = _UUID(case_id)
         try:
-            repo = IngestionRepository()
-            case = await repo.get_case(case_uuid)
+            ingest_repo = IngestionRepository()
+            case = await ingest_repo.get_case(case_uuid)
             if case is None:
                 return JSONResponse({"error": "unknown case"}, status_code=404)
             if not case.ledger_complete:
@@ -230,22 +255,63 @@ async def api_run(case_id: str):
                 )
         except Exception as e:  # noqa: BLE001 — surface DB/load failures as a clean error
             return JSONResponse({"error": "run setup failed", "detail": f"{type(e).__name__}: {e}"}, status_code=500)
+
+        # Insert the runs row up-front so transcript rows below can FK to it.
+        from backend.schemas import RunCreate
+        run_repo = RunRepository()
+        try:
+            run_row = await run_repo.insert_run(
+                RunCreate(case_id=case_uuid, mode="mock" if is_mock() else "live")
+            )
+            run_id = run_row.id
+        except Exception as e:  # noqa: BLE001
+            return JSONResponse(
+                {"error": "run setup failed", "detail": f"insert_run: {type(e).__name__}: {e}"},
+                status_code=500,
+            )
     else:
+        # Demo case (no DB persistence — clean/loser don't have a cases row).
         meta = next((c for c in _load_cases() if c["id"] == case_id), None)
         if not meta:
             return JSONResponse({"error": "unknown case"}, status_code=404)
         claim = ClaimInput.model_validate(json.loads((DATA / meta["file"]).read_text()))
         statutes = [Statute.model_validate(s) for s in json.loads((DATA / "statutes.json").read_text())]
 
+    # ---- SSE plumbing -------------------------------------------------------
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
     def on_post(p: Posting) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, ("posting", p.to_dict()))
 
-    room = make_room(claim.caseId, on_post)
+    # The persistence sink — only set on the UUID path. Writes one transcript
+    # row per posting BEFORE the SSE callback fires (see Room.post()).
+    persist: Optional[Any] = None
+    if run_repo is not None and run_id is not None and case_uuid is not None:
+        from backend.schemas import TranscriptCreate
+        _run_repo = run_repo
+        _run_id = run_id
+        _case_uuid = case_uuid
+
+        async def _persist(p: Posting) -> None:
+            await _run_repo.insert_posting(
+                TranscriptCreate(
+                    case_id=_case_uuid,
+                    run_id=_run_id,
+                    seq=p.seq,
+                    agent_name=p.agent,
+                    color=p.color,
+                    kind=p.kind,
+                    content=p.content,
+                )
+            )
+        persist = _persist
+
+    room = make_room(claim.caseId, on_post, persist=persist)
 
     async def drive() -> None:
+        from backend.schemas import RunUpdate
+        started_at = datetime.now(timezone.utc)
         try:
             result = await run_lumen(claim, statutes, room, ledger=ledger)
             audit = hashlib.sha256(
@@ -255,6 +321,26 @@ async def api_run(case_id: str):
                     "letter": result.letter,
                 }).encode()
             ).hexdigest()
+
+            # Persist the decision + complete the run (UUID path only).
+            if run_repo is not None and run_id is not None and case_uuid is not None:
+                try:
+                    await _persist_decision(run_repo, case_uuid, run_id, result, audit)
+                except Exception as e:  # noqa: BLE001
+                    # Decision persist failure → mark run failed but still emit
+                    # the result to the client; the audit chain is broken but
+                    # the user shouldn't lose the in-flight decision.
+                    await run_repo.complete_run(
+                        run_id, status="failed",
+                        started_at=started_at,
+                        error_message=f"insert_decision: {type(e).__name__}: {e}",
+                    )
+                else:
+                    final_status = "escalated" if result.decision.escalate else "completed"
+                    await run_repo.complete_run(
+                        run_id, status=final_status, started_at=started_at,
+                    )
+
             await queue.put(("result", {
                 "intake": result.intake.model_dump(),
                 "ledger": result.ledger.model_dump(),
@@ -262,15 +348,29 @@ async def api_run(case_id: str):
                 "letter": result.letter,
                 "auditHash": audit,
                 "bandRoomId": getattr(room, "room_id", None),
+                "runId": str(run_id) if run_id else None,
             }))
             await queue.put(("done", {}))
         except Exception as e:  # noqa: BLE001
+            if run_repo is not None and run_id is not None:
+                try:
+                    await run_repo.complete_run(
+                        run_id, status="failed",
+                        started_at=started_at,
+                        error_message=f"{type(e).__name__}: {e}",
+                    )
+                except Exception:  # noqa: BLE001 — bookkeeping shouldn't mask the real error
+                    pass
             await queue.put(("error", {"message": str(e)}))
         finally:
             await queue.put(None)
 
     async def stream():
-        yield _sse("start", {"caseId": claim.caseId, "mock": is_mock()})
+        yield _sse("start", {
+            "caseId": claim.caseId,
+            "mock": is_mock(),
+            "runId": str(run_id) if run_id else None,
+        })
         task = asyncio.create_task(drive())
         try:
             while True:
@@ -284,6 +384,115 @@ async def api_run(case_id: str):
                 task.cancel()
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform"})
+
+
+async def _persist_decision(
+    run_repo: RunRepository,
+    case_uuid: Any,
+    run_id: Any,
+    result: Any,
+    audit_hash: str,
+) -> None:
+    """Translate the pipeline's in-memory FinalDecision into a DecisionCreate row.
+
+    Pulled out of api_run to keep the SSE driver readable. Maps pipeline-internal
+    camelCase field names to the snake_case schema the `decisions` table uses.
+    """
+    from decimal import Decimal as _D
+    from backend.schemas import DecisionCreate
+    from backend.schemas.decision import FaultTableRow
+
+    d = result.decision
+    fault_table = [
+        FaultTableRow(factId=ft.factId, favors=ft.favors, weight=float(ft.weight))
+        for ft in (d.faultTable or [])
+    ]
+    secondary = d.secondary.model_dump() if d.secondary is not None else None
+    await run_repo.insert_decision(
+        DecisionCreate(
+            case_id=case_uuid,
+            run_id=run_id,
+            other_driver_fault_pct=_D(str(d.otherDriverFaultPct)),
+            confidence=_D(str(d.confidence)),
+            recovery_usd=_D(str(d.recoveryUsd)),
+            escalate=d.escalate,
+            escalate_reasons=list(d.escalateReasons or []),
+            near_fifty_fifty=d.nearFiftyFifty,
+            consensus_type=d.consensus,
+            consensus_delta=_D(str(d.consensusDelta)),
+            fault_table=fault_table,
+            reasoning=d.reasoning,
+            secondary_decision=secondary,
+            letter=result.letter,
+            audit_hash=audit_hash,
+        )
+    )
+
+
+@app.get("/api/cases/{case_id}/runs")
+async def api_case_runs(case_id: str):
+    """Run history for a real (Supabase) case — newest first.
+
+    Each entry carries the run lifecycle (mode, status, started_at, duration)
+    plus a thin summary of the persisted decision if one exists. Used by the
+    case-detail page to show prior debate runs and to know which run to replay.
+    """
+    if not _is_uuid(case_id):
+        return JSONResponse({"error": "demo cases have no run history"}, status_code=400)
+    from uuid import UUID as _UUID
+    case_uuid = _UUID(case_id)
+    repo = RunRepository()
+    runs = await repo.list_runs_for_case(case_uuid, limit=20)
+    out: list[dict[str, Any]] = []
+    for r in runs:
+        dec = await repo.get_decision_for_run(r.id)
+        out.append({
+            "run": r.model_dump(mode="json"),
+            "decision_summary": None if dec is None else {
+                "other_driver_fault_pct": float(dec.other_driver_fault_pct),
+                "recovery_usd": float(dec.recovery_usd),
+                "confidence": float(dec.confidence),
+                "escalate": dec.escalate,
+                "consensus_type": dec.consensus_type,
+                "audit_hash": dec.audit_hash,
+            },
+        })
+    return {"runs": out}
+
+
+@app.get("/api/runs/{run_id}/transcript")
+async def api_run_transcript(run_id: str):
+    """Replay one run — the full ordered transcript + the decision row + run meta.
+
+    The frontend hits this on case-detail mount: instead of leaving the
+    Argument Room empty after a reload, we re-hydrate it from the persisted
+    postings so the conversation is durable across refreshes.
+    """
+    if not _is_uuid(run_id):
+        return JSONResponse({"error": "invalid run id"}, status_code=400)
+    from uuid import UUID as _UUID
+    run_uuid = _UUID(run_id)
+    repo = RunRepository()
+    run = await repo.get_run(run_uuid)
+    if run is None:
+        return JSONResponse({"error": "unknown run"}, status_code=404)
+    postings = await repo.list_transcript_for_run(run_uuid)
+    decision = await repo.get_decision_for_run(run_uuid)
+    return {
+        "run": run.model_dump(mode="json"),
+        "postings": [
+            {
+                "seq": p.seq,
+                "agent": p.agent_name,
+                "color": p.color,
+                "kind": p.kind,
+                "content": p.content,
+                "posted_at": p.posted_at.isoformat(),
+            }
+            for p in postings
+        ],
+        "decision": decision.model_dump(mode="json") if decision else None,
+    }
 
 
 @app.post("/api/decision")

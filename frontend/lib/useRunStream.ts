@@ -27,7 +27,15 @@ type Action =
   | { type: "letter_chunk"; text: string }
   | { type: "result"; decision: DecisionResult }
   | { type: "error"; message: string }
-  | { type: "reset" };
+  | { type: "reset" }
+  | {
+      type: "seed";
+      caseId: string;
+      postings: RoomPosting[];
+      decision: DecisionResult | null;
+      letter: string;
+      status: "complete" | "streaming" | "error";
+    };
 
 interface RunDecisionEvent
   extends Omit<
@@ -94,6 +102,15 @@ const ACTION_REDUCERS: ActionReducers = {
     error: action.message,
   }),
   reset: () => initial,
+  seed: (_state, action) => ({
+    ...initial,
+    caseId: action.caseId,
+    postings: action.postings,
+    decision: action.decision,
+    letter: action.letter,
+    status: action.status,
+    bandRoomId: action.decision?.bandRoomId ?? null,
+  }),
 };
 
 function reducer(s: RunState, a: Action): RunState {
@@ -169,6 +186,31 @@ export function useRunStream() {
     dispatch({ type: "reset" });
   };
 
+  /**
+   * Hydrate the hook with a previously persisted run (postings + optional
+   * decision). Used by the case-detail page to replay the last debate from
+   * the `transcript` + `decisions` tables on mount, so refresh preserves
+   * what the user already saw.
+   */
+  const seed = (input: {
+    caseId: string;
+    postings: RoomPosting[];
+    decision: DecisionResult | null;
+    letter?: string;
+    status?: "complete" | "streaming" | "error";
+  }) => {
+    sourceRef.current?.close();
+    sourceRef.current = null;
+    dispatch({
+      type: "seed",
+      caseId: input.caseId,
+      postings: input.postings,
+      decision: input.decision,
+      letter: input.letter ?? input.decision?.letter ?? "",
+      status: input.status ?? (input.decision ? "complete" : "streaming"),
+    });
+  };
+
   // Tear down on unmount.
   useEffect(() => {
     return () => {
@@ -177,7 +219,43 @@ export function useRunStream() {
     };
   }, []);
 
-  return { state, start, stop };
+  return { state, start, stop, seed };
+}
+
+/**
+ * Map a persisted-DecisionRow JSON blob (snake_case from /api/runs/.../transcript)
+ * into the camelCase DecisionResult shape the UI components consume. Returns
+ * null if no decision row exists yet (run still in progress, or failed early).
+ */
+export function decisionFromPersisted(
+  raw: Record<string, unknown> | null,
+): DecisionResult | null {
+  if (!raw) return null;
+  const get = <T>(...keys: string[]): T | undefined => {
+    for (const k of keys) {
+      const v = raw[k];
+      if (v !== undefined && v !== null) return v as T;
+    }
+    return undefined;
+  };
+  return {
+    outcome: (get<string>("outcome") ?? (get<boolean>("escalate") ? "escalate" : "pursue")) as
+      | "pursue"
+      | "escalate"
+      | "decline",
+    otherFaultPct: Number(get("otherDriverFaultPct", "other_driver_fault_pct") ?? 0),
+    recoveryUsd: Number(get("recoveryUsd", "recovery_usd") ?? 0),
+    confidence: Number(get("confidence") ?? 0),
+    escalate: Boolean(get("escalate") ?? false),
+    consensus: get<DecisionResult["consensus"]>("consensus", "consensus_type"),
+    consensusDeltaPp: Number(get("consensusDeltaPp", "consensus_delta") ?? 0),
+    faultTable: get("faultTable", "fault_table") as DecisionResult["faultTable"],
+    reasoning: get<string>("reasoning"),
+    letter: get<string>("letter"),
+    auditHash: get<string>("auditHash", "audit_hash"),
+    bandRoomId: (get("bandRoomId", "band_room_id") as string | null | undefined) ?? null,
+    secondaryDecision: get<unknown>("secondaryDecision", "secondary_decision"),
+  };
 }
 
 function normalizeRunResult(payload: RunResultEvent): DecisionResult {

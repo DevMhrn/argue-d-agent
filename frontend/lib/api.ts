@@ -19,6 +19,8 @@ import type {
   LegacyClaim,
   PrepareUploadRequest,
   PrepareUploadResponse,
+  RunHistoryEntry,
+  RunReplay,
 } from "./types";
 
 export class ApiError extends Error {
@@ -187,6 +189,18 @@ export async function getDemoClaim(
     throw new ApiError(`Case ${id} is not a demo case`, 400);
   }
   return { claim: data.claim };
+}
+
+/** Run history for a real (Supabase) case. Newest first. Demo cases 400. */
+export async function listRunsForCase(caseUuid: string): Promise<{ runs: RunHistoryEntry[] }> {
+  const res = await fetch(apiUrl(`/api/cases/${caseUuid}/runs`), { cache: "no-store" });
+  return jsonOrThrow<{ runs: RunHistoryEntry[] }>(res);
+}
+
+/** Full persisted transcript + decision for a specific run. Powers replay-on-mount. */
+export async function getRunReplay(runId: string): Promise<RunReplay> {
+  const res = await fetch(apiUrl(`/api/runs/${runId}/transcript`), { cache: "no-store" });
+  return jsonOrThrow<RunReplay>(res);
 }
 
 export async function postDecision(payload: {

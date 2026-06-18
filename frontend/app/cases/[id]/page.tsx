@@ -10,14 +10,15 @@ import { LedgerGraphPanel } from "@/components/LedgerGraphPanel";
 import { LedgerPanel } from "@/components/LedgerPanel";
 import { RoomPanel } from "@/components/RoomPanel";
 import { StageStepper } from "@/components/StageStepper";
-import { ApiError, getCase } from "@/lib/api";
+import { ApiError, getCase, getRunReplay, listRunsForCase } from "@/lib/api";
 import type {
   CaseDetailResponse,
   DbCase,
   DbCaseResponse,
   DemoCaseResponse,
+  RunHistoryEntry,
 } from "@/lib/types";
-import { useRunStream } from "@/lib/useRunStream";
+import { decisionFromPersisted, useRunStream } from "@/lib/useRunStream";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -42,7 +43,8 @@ export default function CaseDetailPage({ params }: PageProps) {
 
   const [data, setData] = useState<CaseDetailResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const { state, start } = useRunStream();
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const { state, start, seed } = useRunStream();
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +55,46 @@ export default function CaseDetailPage({ params }: PageProps) {
       cancelled = true;
     };
   }, [id]);
+
+  // On mount for real (UUID) cases: fetch run history + replay the latest
+  // persisted run so a refresh doesn't blow away the conversation. Demo case
+  // ids never have runs in the DB (no FK target) — getRunsForCase 400s on them.
+  useEffect(() => {
+    if (!data || data.source !== "db") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { runs } = await listRunsForCase(data.case.id);
+        if (cancelled) return;
+        setRunHistory(runs);
+        if (runs.length === 0) return;
+        const latest = runs[0].run;
+        // Only seed for terminal runs — a still-running one would conflict
+        // with a live SSE if the user immediately clicks "Open the room".
+        if (latest.status === "running") return;
+        const replay = await getRunReplay(latest.id);
+        if (cancelled) return;
+        seed({
+          caseId: data.case.case_id,
+          postings: replay.postings.map((p) => ({
+            agent: p.agent,
+            color: `c${p.color}`, // RoomPosting.color is a string token
+            kind: p.kind,
+            content: p.content,
+            at: new Date(p.posted_at).getTime(),
+          })),
+          decision: decisionFromPersisted(replay.decision),
+          status: "complete",
+        });
+      } catch {
+        // Don't block the page if the runs endpoint isn't reachable yet.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const handleRun = () => {
     start(id);
@@ -87,7 +129,15 @@ export default function CaseDetailPage({ params }: PageProps) {
     return <DemoCaseView data={data} onRun={handleRun} run={state} />;
   }
 
-  return <DbCaseView data={data} onRun={handleRun} run={state} caseId={id} />;
+  return (
+    <DbCaseView
+      data={data}
+      onRun={handleRun}
+      run={state}
+      caseId={id}
+      runHistory={runHistory}
+    />
+  );
 }
 
 interface CaseLoadResult {
@@ -171,11 +221,13 @@ function DbCaseView({
   onRun,
   run,
   caseId,
+  runHistory,
 }: {
   data: DbCaseResponse;
   onRun: () => void;
   run: ReturnType<typeof useRunStream>["state"];
   caseId: string;
+  runHistory: RunHistoryEntry[];
 }) {
   const c = data.case as DbCase;
   const room = dbRoomState(c);
@@ -186,7 +238,59 @@ function DbCaseView({
       <DbGateRail postings={run.postings} canRun={room.canRun} />
       <DbCaseBody data={data} run={run} room={room} onRun={onRun} />
       <DbDecision caseId={caseId} run={run} />
+      <RunHistoryStrip history={runHistory} />
     </div>
+  );
+}
+
+function RunHistoryStrip({ history }: { history: RunHistoryEntry[] }) {
+  if (history.length === 0) return null;
+  return (
+    <section className="rounded-card border border-border bg-panel p-4 shadow-card">
+      <header className="mb-2 flex items-baseline justify-between">
+        <h3 className="font-semibold text-sm">Run history</h3>
+        <span className="text-[12px] text-muted-2">
+          {history.length} debate{history.length === 1 ? "" : "s"} persisted
+        </span>
+      </header>
+      <ul className="grid gap-1.5">
+        {history.map((entry) => (
+          <li
+            key={entry.run.id}
+            className="grid grid-cols-[auto_auto_1fr_auto] items-center gap-3 rounded-pill border border-border-soft bg-panel-2 px-3 py-1.5 text-[12px]"
+          >
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
+                entry.run.status === "running"
+                  ? "border-accent/40 bg-accent/10 text-accent"
+                  : entry.run.status === "failed"
+                    ? "border-bad/40 bg-bad/10 text-bad"
+                    : entry.run.status === "escalated"
+                      ? "border-warn/40 bg-warn/10 text-warn"
+                      : "border-ok/40 bg-ok/10 text-ok"
+              }`}
+            >
+              {entry.run.status}
+            </span>
+            <span className="font-mono text-muted-2">
+              {new Date(entry.run.started_at).toLocaleString()}
+            </span>
+            {entry.decision_summary ? (
+              <span className="text-muted">
+                {entry.decision_summary.other_driver_fault_pct}% fault · $
+                {Math.round(entry.decision_summary.recovery_usd).toLocaleString("en-US")}
+                {entry.decision_summary.escalate ? " · escalated" : ""}
+              </span>
+            ) : (
+              <span className="text-muted-2">no decision yet</span>
+            )}
+            <span className="text-[10px] text-muted-2">
+              {entry.run.mode} · {entry.run.duration_ms ? `${(entry.run.duration_ms / 1000).toFixed(1)}s` : "—"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

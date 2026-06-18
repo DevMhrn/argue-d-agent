@@ -221,15 +221,69 @@ export interface DbCaseResponse {
 
 export type CaseDetailResponse = DemoCaseResponse | DbCaseResponse;
 
+// ---- runs + transcript (persistence) --------------------------------------
+
+export type RunMode = "mock" | "live";
+export type RunStatus = "running" | "completed" | "failed" | "escalated";
+
+export interface RunRow {
+  id: string;
+  case_id: string;
+  mode: RunMode;
+  status: RunStatus;
+  triggered_by: string | null;
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DecisionSummary {
+  other_driver_fault_pct: number;
+  recovery_usd: number;
+  confidence: number;
+  escalate: boolean;
+  consensus_type: "agreement" | "disagreement" | "single" | "none";
+  audit_hash: string | null;
+}
+
+export interface RunHistoryEntry {
+  run: RunRow;
+  decision_summary: DecisionSummary | null;
+}
+
+export interface PersistedPosting {
+  seq: number;
+  agent: string;
+  color: number;
+  kind: "message" | "handoff" | "gate" | "decision" | "system";
+  content: string;
+  posted_at: string;
+}
+
+export interface RunReplay {
+  run: RunRow;
+  postings: PersistedPosting[];
+  decision: Record<string, unknown> | null; // raw DecisionRow JSON
+}
+
 // ---- SSE event shape (from /api/run/:id) -----------------------------------
 
+/**
+ * The set of posting kinds the backend emits. Mirrors `PostingKind` in
+ * backend/schemas/transcript.py and the CHECK constraint on transcript.kind.
+ *
+ * (Prior values like "agent" / "letter" / "verdict" never matched what the
+ * server actually sends; the live SSE payload uses these five.)
+ */
 export type RoomKind =
-  | "agent"
+  | "message"
+  | "handoff"
   | "gate"
-  | "system"
   | "decision"
-  | "letter"
-  | "verdict";
+  | "system";
 
 export interface RoomPosting {
   agent: string;
