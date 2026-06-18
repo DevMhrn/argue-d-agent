@@ -121,6 +121,25 @@ cmd_dev() {
   wait
 }
 
+cmd_demo_band() {
+  # CLI demo that posts to a REAL Band room (deterministic content). Quickest way
+  # to verify Band connectivity end to end — look for "Posted to real Band room".
+  ensure_venv
+  ensure_band_config
+  printf "${C_BLUE}→ CLI demo through REAL Band (LUMEN_BAND=1, deterministic content)${C_RESET}\n"
+  export LUMEN_BAND=1 LUMEN_MOCK=1
+  exec "$PYTHON" -m backend.app.run_demo --band
+}
+
+cmd_dev_band() {
+  # Full stack with Band ON + deterministic content — the bulletproof demo config:
+  # all 8 agents coordinate through a real Band room, no live-model flakiness.
+  ensure_band_config
+  printf "${C_GREEN}→ Band ENABLED (LUMEN_BAND=1) + deterministic content (LUMEN_MOCK=1)${C_RESET}\n"
+  export LUMEN_BAND=1 LUMEN_MOCK=1
+  cmd_dev
+}
+
 cmd_typecheck() {
   ensure_venv
   printf "${C_BLUE}→ Smoke-importing backend packages${C_RESET}\n"
@@ -151,6 +170,14 @@ ensure_env() {
   fi
 }
 
+ensure_band_config() {
+  if [[ ! -f band_config.yaml ]]; then
+    printf "${C_YELLOW}⚠ band_config.yaml not found at repo root.${C_RESET}\n"
+    printf "  Band needs the 8 agents' credentials (agent_id + api_key from app.band.ai).\n"
+    exit 1
+  fi
+}
+
 usage() {
   cat <<EOF
 ${C_GREEN}Lumen — runner${C_RESET}
@@ -163,8 +190,10 @@ Commands:
   ${C_BLUE}worker${C_RESET}      Start the arq extraction worker
   ${C_BLUE}frontend${C_RESET}    Start the Next.js dev server on :3000
   ${C_BLUE}dev${C_RESET}         Start backend + worker + frontend together (one terminal)
+  ${C_BLUE}dev-band${C_RESET}    Same as dev, but Band ON + deterministic content (demo config)
   ${C_BLUE}ingest${C_RESET}      Start BOTH server and worker (foreground, Ctrl-C kills both)
   ${C_BLUE}demo${C_RESET}        Run the CLI demo (offline mock mode, no keys needed)
+  ${C_BLUE}demo-band${C_RESET}   Run the CLI demo through a REAL Band room (verify Band)
   ${C_BLUE}seed${C_RESET}        Load the synthetic Alex/Jordan case into Supabase
   ${C_BLUE}typecheck${C_RESET}   Smoke-import all packages
   ${C_BLUE}clean${C_RESET}       Wipe .venv/
@@ -179,8 +208,10 @@ case "${1:-help}" in
   worker)     cmd_worker ;;
   frontend)   cmd_frontend ;;
   dev)        cmd_dev ;;
+  dev-band)   cmd_dev_band ;;
   ingest)     cmd_ingest ;;
   demo)       cmd_demo ;;
+  demo-band)  cmd_demo_band ;;
   seed)       cmd_seed ;;
   typecheck)  cmd_typecheck ;;
   clean)      cmd_clean ;;
