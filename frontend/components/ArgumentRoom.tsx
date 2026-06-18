@@ -33,7 +33,13 @@ export function ArgumentRoom({
   const running = status === "streaming" || status === "connecting";
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    // The room is the hero panel — give it a bounded height so the inner
+    // transcript scrolls instead of the whole page. Without min-h the empty
+    // state collapses to a sliver; without max-h the section grows with the
+    // grid row (matching the Documents + Ledger column) and the page itself
+    // scrolls instead of the postings. The calc accounts for: sticky nav
+    // (~3.5rem) + case header (~9rem) + gate rail (~4rem) + page padding.
+    <section className="flex h-full min-h-[480px] max-h-[calc(100vh-18rem)] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <ArgumentRoomHeader
         status={status}
         bandRoomId={bandRoomId}
