@@ -199,11 +199,43 @@ async def api_case(case_id: str):
 
 @app.get("/api/run/{case_id}")
 async def api_run(case_id: str):
-    meta = next((c for c in _load_cases() if c["id"] == case_id), None)
-    if not meta:
-        return JSONResponse({"error": "unknown case"}, status_code=404)
-    claim = ClaimInput.model_validate(json.loads((DATA / meta["file"]).read_text()))
-    statutes = [Statute.model_validate(s) for s in json.loads((DATA / "statutes.json").read_text())]
+    # Two sources run the same debate. Demo cases (clean/loser) build their ledger
+    # from the bundled claim; real Supabase cases run over the graph the ledger lane
+    # already persisted (ledger != None → run_lumen skips the rebuild).
+    ledger = None
+    if _is_uuid(case_id):
+        from uuid import UUID as _UUID
+        from backend.ingestion.repository import IngestionRepository
+        from backend.ledger.service import load_run_inputs
+
+        case_uuid = _UUID(case_id)
+        try:
+            repo = IngestionRepository()
+            case = await repo.get_case(case_uuid)
+            if case is None:
+                return JSONResponse({"error": "unknown case"}, status_code=404)
+            if not case.ledger_complete:
+                return JSONResponse(
+                    {"error": "ledger not ready",
+                     "detail": "The evidence ledger has not been built for this case yet.",
+                     "stage": _stage_of(case.model_dump(mode="json"))},
+                    status_code=409,
+                )
+            claim, statutes, ledger = await load_run_inputs(case_uuid)
+            if not ledger.facts:
+                return JSONResponse(
+                    {"error": "empty ledger",
+                     "detail": "The persisted ledger has no facts to argue over."},
+                    status_code=409,
+                )
+        except Exception as e:  # noqa: BLE001 — surface DB/load failures as a clean error
+            return JSONResponse({"error": "run setup failed", "detail": f"{type(e).__name__}: {e}"}, status_code=500)
+    else:
+        meta = next((c for c in _load_cases() if c["id"] == case_id), None)
+        if not meta:
+            return JSONResponse({"error": "unknown case"}, status_code=404)
+        claim = ClaimInput.model_validate(json.loads((DATA / meta["file"]).read_text()))
+        statutes = [Statute.model_validate(s) for s in json.loads((DATA / "statutes.json").read_text())]
 
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -215,7 +247,7 @@ async def api_run(case_id: str):
 
     async def drive() -> None:
         try:
-            result = await run_lumen(claim, statutes, room)
+            result = await run_lumen(claim, statutes, room, ledger=ledger)
             audit = hashlib.sha256(
                 json.dumps({
                     "postings": [p.to_dict() for p in room.postings],
