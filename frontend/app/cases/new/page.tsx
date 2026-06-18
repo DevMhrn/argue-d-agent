@@ -30,6 +30,9 @@ import {
   uploadToStorage,
 } from "@/lib/api";
 import {
+  classify,
+  type FileCategory,
+  type FileRejection,
   mimeOf,
   partitionSupportedFiles,
   queueFiles,
@@ -211,11 +214,14 @@ export default function NewCasePage() {
       return;
     }
 
-    // Filter to supported types BEFORE we hit the backend so the user gets
-    // an instant, friendly explanation instead of a 400 error chip. Drag-
-    // drop bypasses the <input accept="..."> filter, so this is the only
-    // place we can catch unsupported types client-side.
-    const { accepted, rejected } = partitionSupportedFiles(picked);
+    // Filter to supported types + per-class caps BEFORE we hit the backend so
+    // the user gets instant feedback instead of a 400 error chip. Drag-drop
+    // bypasses the <input accept="..."> filter, so this is the only place we
+    // can catch oversized/over-count uploads client-side.
+    const pendingCountsByCategory = countByCategory(files);
+    const { accepted, rejected } = partitionSupportedFiles(picked, {
+      pendingCountsByCategory,
+    });
     notifyUnsupportedFiles(rejected, push);
 
     if (accepted.length === 0) return;
@@ -544,36 +550,38 @@ function replaceLastMessage(
   setMessages((prev) => prev.slice(0, -1).concat({ id: uid(), ...msg }));
 }
 
-function notifyUnsupportedFiles(rejected: File[], push: MessagePusher) {
+function notifyUnsupportedFiles(rejected: FileRejection[], push: MessagePusher) {
   if (rejected.length > 0) {
     push({ role: "lumen", text: unsupportedFilesMessage(rejected) });
   }
 }
 
-function unsupportedFilesMessage(rejected: File[]): string {
-  return `Can't ingest ${unsupportedNoun(rejected)} yet — only ${SUPPORTED_LABEL} are supported in v1:\n\n${rejectedFilesList(rejected)}${unsupportedRoadmapNote(rejected)}`;
+function unsupportedFilesMessage(rejected: FileRejection[]): string {
+  const reasonHint = rejected.every((r) => r.reason === "mime")
+    ? `Only ${SUPPORTED_LABEL} are supported.`
+    : "Check the per-file cap and per-case limit for each category.";
+  return `Can't ingest ${unsupportedNoun(rejected)}. ${reasonHint}\n\n${rejectedFilesList(rejected)}`;
 }
 
-function unsupportedNoun(rejected: File[]): string {
+function unsupportedNoun(rejected: FileRejection[]): string {
   return rejected.length === 1 ? "this file" : "these files";
 }
 
-function rejectedFilesList(rejected: File[]): string {
-  return rejected
-    .map((file) => `• ${file.name} (${file.type || "unknown type"})`)
-    .join("\n");
+function rejectedFilesList(rejected: FileRejection[]): string {
+  return rejected.map((r) => `• ${r.file.name} — ${r.message}`).join("\n");
 }
 
-function unsupportedRoadmapNote(rejected: File[]): string {
-  const media = rejectedMediaType(rejected);
-  if (!media) return "";
-  return `\n\n${media} need a separate vision/transcription pass — that's on the Phase 2 roadmap (Gemini/Claude vision, Whisper for audio).`;
-}
-
-function rejectedMediaType(rejected: File[]): string {
-  if (rejected.some((file) => file.type.startsWith("image/"))) return "Images";
-  if (rejected.some((file) => file.type.startsWith("audio/"))) return "Audio";
-  return "";
+function countByCategory(
+  files: LocalFile[],
+): Partial<Record<FileCategory, number>> {
+  const counts: Partial<Record<FileCategory, number>> = {};
+  for (const f of files) {
+    if (f.stage === "failed") continue;
+    const cat = classify(mimeOf(f.file));
+    if (!cat) continue;
+    counts[cat] = (counts[cat] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function uploadQueuedMessage(count: number): string {

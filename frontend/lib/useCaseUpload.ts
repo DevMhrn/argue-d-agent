@@ -21,6 +21,9 @@ import { useCallback, useState } from "react";
 import type { LocalFile, LocalFileStage } from "@/components/FileRow";
 import { ApiError, commitUpload, signUpload, uploadToStorage } from "@/lib/api";
 import {
+  classify,
+  type FileCategory,
+  type FileRejection,
   mimeOf,
   partitionSupportedFiles,
   queueFiles,
@@ -35,15 +38,23 @@ export interface UseCaseUploadOptions {
   concurrency?: number;
   /** Notified when a file finishes commit (document_id known + on server). */
   onCommitted?: (documentId: string) => void;
-  /** Notified when a file is rejected client-side for unsupported MIME. */
-  onRejected?: (rejected: File[]) => void;
+  /** Notified when files are rejected client-side (MIME, size, or per-case count). */
+  onRejected?: (rejected: FileRejection[]) => void;
+  /** Per-category counts already known to the caller (e.g. server-side docs).
+   *  Combined with in-flight counts when enforcing per-case caps client-side. */
+  existingCountsByCategory?: Partial<Record<FileCategory, number>>;
 }
 
 export function useCaseUpload(
   caseUuid: string,
   opts: UseCaseUploadOptions = {},
 ) {
-  const { concurrency = 3, onCommitted, onRejected } = opts;
+  const {
+    concurrency = 3,
+    onCommitted,
+    onRejected,
+    existingCountsByCategory,
+  } = opts;
   const [files, setFiles] = useState<LocalFile[]>([]);
 
   const setRow = useCallback((rowUid: string, patch: Partial<LocalFile>) => {
@@ -61,9 +72,13 @@ export function useCaseUpload(
 
   const addFiles = useCallback(
     async (picked: File[]): Promise<{ accepted: number; rejected: number }> => {
-      // Client-side MIME filter so unsupported types (images, etc.) get a
-      // friendly inline rejection instead of a 400 from the backend.
-      const { accepted, rejected } = partitionSupportedFiles(picked);
+      // Enforce MIME + per-file size + per-case count caps before signing, so
+      // users get instant feedback instead of a 400 after the upload PUT.
+      const pendingCountsByCategory = countByCategory(files);
+      const { accepted, rejected } = partitionSupportedFiles(picked, {
+        existingCountsByCategory,
+        pendingCountsByCategory,
+      });
       notifyRejected(rejected, onRejected);
       if (accepted.length === 0)
         return { accepted: 0, rejected: rejected.length };
@@ -76,7 +91,7 @@ export function useCaseUpload(
 
       return { accepted: accepted.length, rejected: rejected.length };
     },
-    [concurrency, onRejected, runOne],
+    [concurrency, existingCountsByCategory, files, onRejected, runOne],
   );
 
   const clearCommitted = useCallback((knownIds: Set<string>) => {
@@ -160,10 +175,23 @@ function failLocalFile(row: LocalFile, setRow: SetLocalFile, err: unknown) {
 }
 
 function notifyRejected(
-  rejected: File[],
-  onRejected: ((rejected: File[]) => void) | undefined,
+  rejected: FileRejection[],
+  onRejected: ((rejected: FileRejection[]) => void) | undefined,
 ) {
   if (rejected.length > 0) onRejected?.(rejected);
+}
+
+function countByCategory(
+  files: LocalFile[],
+): Partial<Record<FileCategory, number>> {
+  const counts: Partial<Record<FileCategory, number>> = {};
+  for (const f of files) {
+    if (f.stage === "failed") continue;
+    const cat = classify(mimeOf(f.file));
+    if (!cat) continue;
+    counts[cat] = (counts[cat] ?? 0) + 1;
+  }
+  return counts;
 }
 
 async function runQueuedUploads(

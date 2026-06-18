@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { LIMITS } from "@/lib/fileSupport";
 
 interface Props {
   disabled?: boolean;
@@ -58,8 +59,9 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         Drop documents here, or click to pick
       </div>
       <div className="text-[12px] text-muted">
-        Accepted: PDF · DOCX · Excel · HTML · Markdown · text · images · audio
-        — up to 50 MB each, 50 per case
+        Documents (PDF · DOCX · Excel · HTML · MD · TXT) up to {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
+        <br />
+        Images up to {LIMITS.image.maxMb} MB · max {LIMITS.image.maxFiles}/case &nbsp;·&nbsp; Audio up to {LIMITS.audio.maxMb} MB · max {LIMITS.audio.maxFiles}/case
       </div>
       <input
         ref={inputRef}
