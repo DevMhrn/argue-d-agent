@@ -131,6 +131,7 @@ export function useRunStream() {
     dispatch({ type: "start", caseId });
 
     const src = new EventSource(`/api/run/${encodeURIComponent(caseId)}`);
+    let receivedResult = false;
     sourceRef.current = src;
 
     const handlePosting = (e: MessageEvent) => {
@@ -156,6 +157,7 @@ export function useRunStream() {
 
     src.addEventListener("result", (e: MessageEvent) => {
       try {
+        receivedResult = true;
         const payload = JSON.parse(e.data) as RunResultEvent;
         dispatch({ type: "result", decision: normalizeRunResult(payload) });
       } catch (err) {
@@ -163,16 +165,15 @@ export function useRunStream() {
           type: "error",
           message: err instanceof Error ? err.message : String(err),
         });
-      } finally {
-        src.close();
-        sourceRef.current = null;
       }
+      src.close();
+      sourceRef.current = null;
     });
 
     src.onerror = () => {
       // The backend closes the connection cleanly on completion; only surface
       // an error if we never received a result.
-      if (state.status !== "complete") {
+      if (!receivedResult) {
         dispatch({ type: "error", message: "Stream interrupted" });
       }
       src.close();
@@ -239,21 +240,28 @@ export function decisionFromPersisted(
     return undefined;
   };
   return {
-    outcome: (get<string>("outcome") ?? (get<boolean>("escalate") ? "escalate" : "pursue")) as
+    outcome: (get<string>("outcome") ??
+      (get<boolean>("escalate") ? "escalate" : "pursue")) as
       | "pursue"
       | "escalate"
       | "decline",
-    otherFaultPct: Number(get("otherDriverFaultPct", "other_driver_fault_pct") ?? 0),
+    otherFaultPct: Number(
+      get("otherDriverFaultPct", "other_driver_fault_pct") ?? 0,
+    ),
     recoveryUsd: Number(get("recoveryUsd", "recovery_usd") ?? 0),
     confidence: Number(get("confidence") ?? 0),
     escalate: Boolean(get("escalate") ?? false),
     consensus: get<DecisionResult["consensus"]>("consensus", "consensus_type"),
     consensusDeltaPp: Number(get("consensusDeltaPp", "consensus_delta") ?? 0),
-    faultTable: get("faultTable", "fault_table") as DecisionResult["faultTable"],
+    faultTable: get(
+      "faultTable",
+      "fault_table",
+    ) as DecisionResult["faultTable"],
     reasoning: get<string>("reasoning"),
     letter: get<string>("letter"),
     auditHash: get<string>("auditHash", "audit_hash"),
-    bandRoomId: (get("bandRoomId", "band_room_id") as string | null | undefined) ?? null,
+    bandRoomId:
+      (get("bandRoomId", "band_room_id") as string | null | undefined) ?? null,
     secondaryDecision: get<unknown>("secondaryDecision", "secondary_decision"),
   };
 }

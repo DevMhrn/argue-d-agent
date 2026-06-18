@@ -25,7 +25,7 @@ const AGENT_META: Record<string, { role: string; color: string }> = {
     color: "text-agent-adj-a",
   },
   "Adjudicator B": {
-    role: "Independent referee · Gemini",
+    role: "Independent referee · GPT",
     color: "text-agent-adj-b",
   },
   "Source-Alignment Verifier": {

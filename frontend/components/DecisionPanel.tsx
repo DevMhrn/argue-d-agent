@@ -68,9 +68,10 @@ export function DecisionPanel({ caseId, decision, letter }: Props) {
     try {
       await postDecision({ caseId, action: a });
       setAction(a);
-    } finally {
-      setSending(false);
+    } catch {
+      // Keep the current review state if the acknowledgement endpoint fails.
     }
+    setSending(false);
   }
 
   if (!decision) {

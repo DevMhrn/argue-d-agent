@@ -137,6 +137,25 @@ def _parse_rebuttal(raw: str) -> Rebuttal:
     return Rebuttal.model_validate(data)
 
 
+def _parse_intake(raw: str, claim: ClaimInput) -> Intake:
+    data = _safe_json(raw)
+    try:
+        return Intake.model_validate(data)
+    except Exception:
+        parties = data.get("parties") if isinstance(data.get("parties"), dict) else {}
+        return Intake.model_validate(
+            {
+                "parties": {
+                    "insured": str(parties.get("insured") or claim.insured),
+                    "otherParty": str(parties.get("otherParty") or claim.otherParty),
+                },
+                "date": str(data.get("date") or "not in evidence"),
+                "location": str(data.get("location") or "not in evidence"),
+                "damagesUsd": claim.damagesUsd,
+            }
+        )
+
+
 def _parse_letter(raw: str) -> str:
     try:
         parsed = _safe_json(raw)
@@ -220,7 +239,16 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
 
     # 1) Intake
-    intake = Intake.model_validate(_safe_json(await _ask(AGENTS["intake"], f"CLAIM DOCUMENTS:\n{docs_text}", "intake")))
+    intake_prompt = (
+        "CASE METADATA:\n"
+        f"caseId: {claim.caseId}\n"
+        f"insured: {claim.insured}\n"
+        f"otherParty: {claim.otherParty}\n"
+        f"jurisdiction: {claim.jurisdiction}\n"
+        f"documented damages usd: {claim.damagesUsd}\n\n"
+        f"CLAIM DOCUMENTS:\n{docs_text}"
+    )
+    intake = _parse_intake(await _ask(AGENTS["intake"], intake_prompt, "intake"), claim)
     await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
                     f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake.damagesUsd)}")
 

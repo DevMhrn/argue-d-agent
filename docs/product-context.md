@@ -1,6 +1,6 @@
 # Product Context
 
-This document is the shared mental model for contributors and coding agents. It explains the real-world problem Lumen is modeling, the six-agent workflow, the safety rules, and this repository's ownership boundary.
+This document is the shared mental model for contributors and coding agents. It explains the real-world problem Lumen is modeling, the core workflow roles, the safety rules, and this repository's ownership boundary.
 
 ## The Running Story
 
@@ -16,7 +16,7 @@ Lumen behaves like a specialized insurance recovery department. It reads a claim
 
 The target user is an insurance recovery team. The product should feel like a practical workbench for adjusters, liability analysts, recovery specialists, and legal reviewers. It should not behave like a generic chatbot.
 
-## The Six-Agent Model
+## Core Workflow Roles
 
 1. **Intake Parser** reads the claim and extracts parties, date, location, loss facts, and damages. In the running story, it identifies Alex Rivera vs. Jordan Blake, April 27, 2026, 5th Ave & Main St, San Jose, CA, and $42,000 in damages.
 2. **Evidence Aggregator** turns source documents into a numbered Evidence Ledger. Each fact has an ID, statement, source, and supporting reference. Example facts include Blake entering against a red light, Blake being cited, Rivera's pre-impact speed, and witness statements.
@@ -24,6 +24,8 @@ The target user is an insurance recovery team. The product should feel like a pr
 4. **Opposing-Carrier Red Team** attacks that argument as the other insurer would. It is adversarial, not conciliatory, and should expose comparative negligence, causation, coverage, and proof weaknesses.
 5. **Adjudicator** weighs both sides, produces a fault table, sets the fault percentage, confidence, and recovery amount. For example, 85% fault against Blake yields a $35,700 recovery demand on a $42,000 loss.
 6. **Demand Letter Drafter** writes the ready-to-review demand letter from the adjudicator's decision, citing the same evidence and matching the final fault and dollar figures.
+
+The runtime implementation splits adjudication into Adjudicator A/B and adds the Source-Alignment Verifier, so the active agent roster has 8 agents. See `backend/app/agents.py` for the current execution roster.
 
 ## Safety Rules
 
@@ -36,7 +38,14 @@ The system should be comfortable saying "not in evidence" rather than inventing 
 
 ## Current Repository Boundary
 
-This repository owns the orchestration layer:
+This repository owns the active product prototype:
+
+- production Python backend under `backend/`
+- active Next.js console under `frontend/`
+- ingestion, ledger, and orchestration lanes connected by database contracts
+- mock/demo behavior for safe offline checks
+
+The orchestration boundary still matters:
 
 - agent sequencing and role definitions
 - room and handoff behavior
@@ -44,8 +53,5 @@ This repository owns the orchestration layer:
 - citation, fact, and math gates
 - adjudication flow
 - demand package assembly
-- mock/demo behavior for the orchestration loop
 
-Other contributors are expected to build the data ingestion and ledger-production layers. Keep integration points clear. Do not bake in assumptions that make it hard to swap claim parsers, OCR pipelines, document stores, statute stores, or ledger producers.
-
-When in doubt, preserve a clean boundary: this repo should consume a claim, statutes, and an evidence ledger through explicit contracts, then orchestrate the recovery workflow over those inputs.
+Do not bake in assumptions that make it hard to swap claim parsers, OCR pipelines, document stores, statute stores, or ledger producers. When in doubt, preserve the lane boundary: ingestion produces documents/pages, ledger produces the evidence graph, and orchestration runs the recovery debate over those inputs.

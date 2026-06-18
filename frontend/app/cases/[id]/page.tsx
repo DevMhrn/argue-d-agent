@@ -20,6 +20,8 @@ import type {
 } from "@/lib/types";
 import { decisionFromPersisted, useRunStream } from "@/lib/useRunStream";
 
+const LEDGER_READY_POLL_MS = 3000;
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -45,6 +47,7 @@ export default function CaseDetailPage({ params }: PageProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const { state, start, seed } = useRunStream();
+  const shouldPollForLedger = shouldPollCaseDetail(data);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,11 +59,32 @@ export default function CaseDetailPage({ params }: PageProps) {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!shouldPollForLedger) return;
+    let cancelled = false;
+
+    async function refresh() {
+      const result = await loadCaseDetail(id);
+      if (cancelled || result.error || !result.data) return;
+      setData(result.data);
+    }
+
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, LEDGER_READY_POLL_MS);
+    void refresh();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [id, shouldPollForLedger]);
+
   // On mount for real (UUID) cases: fetch run history + replay the latest
   // persisted run so a refresh doesn't blow away the conversation. Demo case
   // ids never have runs in the DB (no FK target) — getRunsForCase 400s on them.
   useEffect(() => {
-    if (!data || data.source !== "db") return;
+    if (data?.source !== "db") return;
     let cancelled = false;
     (async () => {
       try {
@@ -84,7 +108,7 @@ export default function CaseDetailPage({ params }: PageProps) {
             at: new Date(p.posted_at).getTime(),
           })),
           decision: decisionFromPersisted(replay.decision),
-          status: "complete",
+          status: replayStatus(latest.status),
         });
       } catch {
         // Don't block the page if the runs endpoint isn't reachable yet.
@@ -93,7 +117,6 @@ export default function CaseDetailPage({ params }: PageProps) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   const handleRun = () => {
@@ -138,6 +161,18 @@ export default function CaseDetailPage({ params }: PageProps) {
       runHistory={runHistory}
     />
   );
+}
+
+function shouldPollCaseDetail(data: CaseDetailResponse | null): boolean {
+  return (
+    data?.source === "db" &&
+    data.case.ingestion_complete &&
+    !data.case.ledger_complete
+  );
+}
+
+function replayStatus(status: RunHistoryEntry["run"]["status"]) {
+  return status === "failed" ? "error" : "complete";
 }
 
 interface CaseLoadResult {
@@ -278,14 +313,19 @@ function RunHistoryStrip({ history }: { history: RunHistoryEntry[] }) {
             {entry.decision_summary ? (
               <span className="text-muted">
                 {entry.decision_summary.other_driver_fault_pct}% fault · $
-                {Math.round(entry.decision_summary.recovery_usd).toLocaleString("en-US")}
+                {Math.round(entry.decision_summary.recovery_usd).toLocaleString(
+                  "en-US",
+                )}
                 {entry.decision_summary.escalate ? " · escalated" : ""}
               </span>
             ) : (
               <span className="text-muted-2">no decision yet</span>
             )}
             <span className="text-[10px] text-muted-2">
-              {entry.run.mode} · {entry.run.duration_ms ? `${(entry.run.duration_ms / 1000).toFixed(1)}s` : "—"}
+              {entry.run.mode} ·{" "}
+              {entry.run.duration_ms
+                ? `${(entry.run.duration_ms / 1000).toFixed(1)}s`
+                : "—"}
             </span>
           </li>
         ))}
@@ -415,7 +455,7 @@ function DbCaseBody({
 
   return (
     <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="flex h-full min-h-0 max-h-[85vh] flex-col gap-4 overflow-hidden">
+      <div className="flex h-full max-h-[85vh] min-h-0 flex-col gap-4 overflow-hidden">
         <DocumentsPanel caseUuid={c.id} initialDocuments={data.documents} />
         <LedgerGraphPanel
           hasLedger={data.has_ledger}

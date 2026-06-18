@@ -10,7 +10,7 @@ The app has three primary routes:
 |---|---|
 | `/` | Cases list. Shows real Supabase cases and deterministic demo cases side by side. |
 | `/cases/new` | Chat-style intake. Creates a case shell, accepts evidence files, uploads to object storage, polls extraction status, and finalizes ingestion. |
-| `/cases/[id]` | Case detail. Demo IDs open the legacy three-panel mock debate. Supabase UUIDs open the staged real-case view with documents, ledger graph, and locked Argument Room. |
+| `/cases/[id]` | Case detail. Demo IDs open the retained demo debate. Supabase UUIDs open the staged real-case view with documents, detail-page evidence uploads, ledger graph, run history/replay, and locked Argument Room. |
 
 The frontend talks only to the FastAPI API. Browser requests are relative `/api/*` calls; `next.config.ts` rewrites them to the backend during local development.
 
@@ -55,6 +55,8 @@ Real cases come from Supabase and are labeled with `source: "db"`. The staged fl
 6. Finalize ingestion with `POST /api/ingest/finalize/{case_id}` when needed.
 7. Wait for the ledger lane to write nodes/edges and set `ledger_complete=true`.
 8. Open the Argument Room once the ledger is locked.
+9. Stream a run with `GET /api/run/{case_id}`; real UUID runs persist `runs`, `transcript`, and `decisions`.
+10. Replay prior terminal runs with `GET /api/runs/{run_id}/transcript`; the detail page fetches run history with `GET /api/cases/{case_id}/runs` on mount.
 
 `frontend/lib/types.ts` mirrors backend Pydantic response shapes by hand. Update it whenever the FastAPI contract changes.
 
@@ -78,11 +80,4 @@ pnpm build
 
 Run these inside `frontend/`. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.
 
-For repository health checks, run Fallow from the repo root:
-
-```bash
-pnpx fallow
-pnpx fallow audit --format json --quiet --explain --gate-marker agent
-```
-
-`pnpx fallow` should stay clean before handoff. The audit command is the precommit gate and uses `fallow.toml`, which ignores legacy demo paths while keeping the active frontend in scope.
+Repo-level Fallow and React Compiler checks are listed in [`../AGENTS.md`](../AGENTS.md#fallow-local-gate).

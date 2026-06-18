@@ -11,7 +11,7 @@ HTML, plain text.
 
 | Folder | Scenario | Suggested case fields (insured / other / jurisdiction / damages) | Expected outcome |
 |---|---|---|---|
-| `case_pursue_redlight/` | Other driver ran a red light; our insured had green. Clear other-party fault, high value. | Daniel Cho / Robert Hale / CA / **18470** | **pursue or escalate** (recovery >= $25k threshold escalates) |
+| `case_pursue_redlight/` | Other driver ran a red light; our insured had green. Clear other-party fault. | Daniel Cho / Robert Hale / CA / **18470** | **pursue** unless another gate or confidence condition escalates |
 | `case_decline_rearend/` | OUR insured rear-ended a stopped car (following too closely). We are at fault. | Megan Ross / Luis Ortega / CA / **3150** | **decline** (low recovery, our fault) |
 | `case_escalate_leftturn/` | Disputed left-turn vs. alleged speeding. Conflicting accounts, ~50/50, no witness/camera. | Aisha Khan / Tyler Brooks / CA / **12900** | **escalate** (near 50/50, adjudicator disagreement) |
 

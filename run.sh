@@ -10,7 +10,7 @@
 #   ./run.sh setup       Create venv + install deps (idempotent)
 #   ./run.sh server      Start the FastAPI server on :8000
 #   ./run.sh worker      Start the arq extraction worker
-#   ./run.sh frontend    Start the Next.js dev server on :3000 (Vite-style HMR)
+#   ./run.sh frontend    Start the Next.js dev server on :3000 (HMR)
 #   ./run.sh dev         Start server + worker + frontend together (3 panes)
 #   ./run.sh demo        Run the CLI demo (offline mock)
 #   ./run.sh seed        Load the synthetic case into Supabase
@@ -25,9 +25,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 VENV=".venv"
-PYTHON="${VENV}/bin/python"
-PIP="${VENV}/bin/pip"
-ARQ="${VENV}/bin/arq"
+VENV_BIN=""
+PYTHON=""
+PIP=""
+ARQ=""
 
 # Colors for the help / status output. Disable if not a tty.
 if [[ -t 1 ]]; then
@@ -36,14 +37,34 @@ else
   C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_RESET=''
 fi
 
+configure_venv_paths() {
+  local bin_dir="bin"
+  local exe=""
+  if [[ -x "${VENV}/Scripts/python.exe" || ( ! -x "${VENV}/bin/python" && ( "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* ) ) ]]; then
+    bin_dir="Scripts"
+    exe=".exe"
+  fi
+  VENV_BIN="${VENV}/${bin_dir}"
+  PYTHON="${VENV_BIN}/python${exe}"
+  PIP="${VENV_BIN}/pip${exe}"
+  ARQ="${VENV_BIN}/arq${exe}"
+}
+
 ensure_venv() {
   if [[ ! -d "$VENV" ]]; then
     printf "${C_BLUE}→ Creating virtualenv at %s${C_RESET}\n" "$VENV"
-    python3 -m venv "$VENV"
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -m venv "$VENV"
+    else
+      python -m venv "$VENV"
+    fi
+    configure_venv_paths
     "$PIP" install --upgrade pip --quiet
     printf "${C_BLUE}→ Installing requirements.txt${C_RESET}\n"
     "$PIP" install -r requirements.txt --quiet
     printf "${C_GREEN}✓ venv ready${C_RESET}\n"
+  else
+    configure_venv_paths
   fi
 }
 
@@ -73,6 +94,7 @@ cmd_worker() {
 
 cmd_demo() {
   ensure_venv
+  export LUMEN_MOCK=1
   printf "${C_BLUE}→ Running CLI demo (mock mode)${C_RESET}\n"
   exec "$PYTHON" -m backend.app.run_demo
 }
@@ -156,7 +178,7 @@ import backend.ingestion.service
 import backend.ingestion.worker
 import backend.ingestion.adapters
 import backend.schemas
-print('✓ imports OK')
+print('imports OK')
 "
 }
 

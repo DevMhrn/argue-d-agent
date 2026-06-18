@@ -46,7 +46,7 @@ The frontend shows two case sources through the same API surface:
 
 The ledger handoff is wired: when ingestion flips `ingestion_complete=true`, the winning worker enqueues the arq job `run_ledger_build`, which reads the case's documents/pages/statutes, builds the typed graph, writes `nodes`/`edges` via asyncpg, and flips `ledger_complete=true` (see `backend/ledger/service.py`, `db_repository.py`, `jobs.py`). That opens the Argument Room in the UI.
 
-`GET /api/run/{case_id}` runs the debate for **both** sources. Demo ids (`clean`/`loser`) build their ledger from the bundled claim. Real UUIDs run the debate **over the persisted graph**: `backend/ledger/service.py::load_run_inputs` reconstructs the claim from `documents`/`document_pages`, loads statutes, and projects the stored Fact `nodes` into an `EvidenceLedger`; `run_lumen(..., ledger=…)` then skips the rebuild and argues over those facts. The server requires `ledger_complete=true` (returns 409 otherwise). Persisting the run's decision/transcript back to `runs`/`decisions`/`transcript` (and flipping `finalized`) remains the orchestration lane's next step — results currently stream over SSE.
+`GET /api/run/{case_id}` runs the debate for **both** sources. Demo ids (`clean`/`loser`) build their ledger from the bundled claim and stream in-memory. Real UUIDs run the debate **over the persisted graph**: `backend/ledger/service.py::load_run_inputs` reconstructs the claim from `documents`/`document_pages`, loads statutes, and projects the stored Fact `nodes` into an `EvidenceLedger`; `run_lumen(..., ledger=...)` then skips the rebuild and argues over those facts. The server requires `ledger_complete=true` (returns 409 otherwise). On the UUID path, orchestration inserts a `runs` row, persists every room posting to `transcript`, inserts the final `decisions` row, returns `runId`, and exposes replay/history through `GET /api/cases/{case_id}/runs` and `GET /api/runs/{run_id}/transcript`. Human approval persistence and flipping `cases.finalized` remain follow-ups.
 
 ## Production Flow
 
@@ -87,7 +87,7 @@ The handoff flags on `cases` are the lane contract:
 |---|---|---|
 | `ingestion_complete` | Ingestion worker or manual finalize endpoint | Ledger graph build |
 | `ledger_complete` | Ledger repository after nodes and edges persist | Argument Room |
-| `finalized` | Orchestration/human review path | Closed recovery packet |
+| `finalized` | Future human approval persistence | Closed recovery packet |
 
 ## Agents And Gates
 

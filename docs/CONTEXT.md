@@ -87,19 +87,19 @@ When someone runs a red light and hits your car, your insurer pays you right awa
 
 Provider assignment is **deliberate cross-family** so the adversarial parts are genuinely independent — not one model arguing with itself. (We ran across three families until 2026-06-18, when we lost Gemini access and repointed the three Gemini slots onto Claude/GPT — see the decision log. Gemini stays a *supported* provider; reassign an agent to it once a key is available.)
 
-| # | Agent | Family / model (default) | Job |
+| # | Agent | Current provider family | Job |
 |---|-------|--------------------------|-----|
-| 1 | Intake Parser | OpenAI · `gpt-4o-mini` | Extract parties/date/location/damages from the FNOL |
-| 2 | Evidence Aggregator | OpenAI · `gpt-4o-mini` | Build the grounded Evidence Ledger (JSON extraction → `json_object` mode) |
-| 3 | Liability Advocate | Anthropic · `claude-opus-4-8` | Argue our insured is owed recovery (zealous counsel) |
-| 4 | Opposing-Carrier Red Team | OpenAI · `gpt-4o` | Attack our case — *a red team, never a negotiator* |
-| 5 | Adjudicator A | Anthropic · `claude-opus-4-8` | Neutrally set fault % + recovery, showing its math |
-| 6 | Adjudicator B | OpenAI · `gpt-4o` | Independent re-decision on a **different family** (GPT vs A's Claude) |
-| 7 | Source-Alignment Verifier | Anthropic · `claude-sonnet-4-6` | Audit every cited claim *actually follows* from its fact |
-| 8 | Demand Letter Drafter | Anthropic · `claude-sonnet-4-6` | Compose the formal demand letter |
+| 1 | Intake Parser | OpenAI | Extract parties/date/location/damages from the FNOL |
+| 2 | Evidence Aggregator | OpenAI | Build the grounded Evidence Ledger |
+| 3 | Liability Advocate | Anthropic | Argue our insured is owed recovery (zealous counsel) |
+| 4 | Opposing-Carrier Red Team | OpenAI | Attack our case — *a red team, never a negotiator* |
+| 5 | Adjudicator A | Anthropic | Neutrally set fault % + recovery, showing its math |
+| 6 | Adjudicator B | OpenAI | Independent re-decision on a **different family** (GPT vs A's Claude) |
+| 7 | Source-Alignment Verifier | Anthropic | Audit every cited claim *actually follows* from its fact |
+| 8 | Demand Letter Drafter | Anthropic | Compose the formal demand letter |
 
 - **Advocate (Claude) vs. Opposing (GPT)** = cross-family debate. **Adjudicator A (Claude) vs. B (GPT)** = cross-family consensus check. This is what makes "diverse models resist collusion" *real, not cosmetic* — now across **two** families. A clean 4 Claude / 4 GPT split.
-- Model IDs are **env-overridable** (`MODEL_*`). Claude IDs are confirmed current (per the claude-api reference: `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`). **OpenAI IDs are sensible defaults — confirm `gpt-4o` / `gpt-4o-mini` in the OpenAI console before live runs.**
+- Model IDs are **env-overridable** (`MODEL_*`). Current defaults live in `backend/app/config.py`; confirm provider catalog IDs before live runs.
 - **Live mode needs only `ANTHROPIC_API_KEY` + `OPENAI_API_KEY`** now (no Gemini). The ledger build (Evidence Aggregator) routes through whatever provider `AGENTS["evidence"]` is set to — currently OpenAI.
 
 ---
@@ -159,14 +159,16 @@ Per `backend/README.md` and the DB schema, the pipeline is a three-stage handoff
 |---|---|---|---|---|
 | **Ingestion** | Aman | `documents`, `document_pages`, `cases.ingestion_complete` | uploaded files | new case |
 | **Ledger** | Gowtham *(the user)* | `nodes`, `edges`, `cases.ledger_complete` | `documents`, `document_pages`, `statutes` | `ingestion_complete=true` |
-| **Orchestration** | Sudharsan | `transcript`, `decisions`, `runs`, `cases.finalized` | `cases`, `nodes`, `edges`, `document_pages`, `statutes` | `ledger_complete=true` |
+| **Orchestration** | Sudharsan | `runs`, `transcript`, `decisions` | `cases`, `nodes`, `edges`, `document_pages`, `statutes` | `ledger_complete=true` |
+
+Human approval persistence and `cases.finalized` are future work, not part of the current orchestration write path.
 
 Repo: `github.com/DevMhrn/argue-d-agent`. This machine's git identity is `gowtham-sai-yadav` (commits are authored as the machine identity, **no AI/Claude attribution** — an explicit user preference).
 
 ### Two backends — history & current truth
-- **Node/TypeScript (`src/`, `server/`)** — the *original* build. Mock-first. Still works; kept as the offline fallback.
-- **Python (`backend/`)** — the **canonical/production backend** (FastAPI). It's where the **real Band SDK** lives (band-sdk is Python-only) and what we **deploy**. The Node engine was **ported to Python** for this reason; the frontend was untouched.
-- **Both backends serve the same `frontend/`** and expose the same routes (`/api/cases`, `/api/case/:id`, `/api/run/:id` [SSE], `/api/decision`, `/api/ingest`).
+- **Node/TypeScript (`src/`, `server/`)** — the *original* build. Mock-first. Retained as the legacy offline fallback.
+- **Python (`backend/`)** — the **canonical/production backend** (FastAPI). It's where the **real Band SDK** lives (band-sdk is Python-only) and what we **deploy**.
+- **Active UI (`frontend/`)** — the Next.js console talks to the FastAPI API. The root TypeScript server is legacy-only unless a task explicitly targets it.
 
 ### Mock-first (a load-bearing strategy, not a shortcut)
 The entire pipeline runs **offline with zero API keys** in MOCK mode (deterministic canned model outputs in `mockResponses.ts` / `mock_responses.py`, keyed by case). **Why:** the demo video can never break on API flakes, development needs no keys/credits, and the Band *transport* can be exercised with canned model *content*. `is_mock()` = true when no provider key is set; `LUMEN_MOCK=1/0` forces it.
@@ -242,7 +244,7 @@ The user asked us to study the reference repo and apply what's *correct* to our 
 
 **Research validity check ("what's correct and what's not"):**
 - ✅ *Correct:* subrogation is untouched and high-value; Recourse proves the adversarial-insurance-on-Band pattern wins attention but is adjudication, so our niche holds; harness depth is a real edge; mock-first is the right demo strategy.
-- ⚠️ *To validate / watch:* (a) at real subrogation scale (50+ docs), our no-RAG grounding may need a retrieval step in the Evidence Aggregator — Recourse's RAG is evidence it matters; (b) Gemini/OpenAI model IDs need console confirmation; (c) the Band room must *visibly* show real coordination (Option B handles this); (d) we must actually deploy + record a video (Recourse already did — that's our execution gap to close).
+- ⚠️ *To validate / watch:* (a) at real subrogation scale (50+ docs), our no-RAG grounding may need a retrieval step in the Evidence Aggregator — Recourse's RAG is evidence it matters; (b) provider model IDs need console confirmation; (c) the Band room must *visibly* show real coordination (Option B handles this); (d) we must actually deploy + record a video (Recourse already did — that's our execution gap to close).
 
 ---
 
@@ -321,19 +323,19 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 
 - **DB access is split — RESOLVED for the real flow:** the real ingestion→ledger→room path is now all **asyncpg** (shared pool from `backend/ingestion/db.py`). The ledger writes live in `backend/ledger/db_repository.py` (`LedgerWriteRepository`). The sync **supabase** client (`backend/ledger/repository.py::LedgerRepository`) is retained *only* for the standalone `build_demo --persist` tool and must not be called from request/worker code (it blocks the event loop). `supabase` stays in `requirements.txt` for that one tool.
 - **`.env` location:** `backend/app/config.py` loads both `backend/.env` and repo-root `.env`. Keep `.env.example` as the shared template; choose one canonical checked-out location per deployment.
-- **Live infra is env-gated:** migrations and seed status depend on credentials outside the repo. This checkout has no `backend/.env`, so live Supabase/B2/Redis state must be reverified before relying on ingestion.
+- **Live infra is env-gated:** migrations, seed status, and live provider runs depend on credentials outside the repo. Reverify Supabase/B2/Redis/provider state in the target checkout before relying on live ingestion or live adjudication.
 - **Provider model IDs are defaults:** values in `backend/app/config.py` are configuration defaults. Confirm provider catalog IDs before live runs.
 - **Scale gap:** ingestion targets 50+ docs/case; the orchestration was demoed on compact sample evidence. At scale the Evidence Aggregator likely needs a retrieval step (full-text first, embeddings only if needed).
-- **Ledger build handoff — NOW WIRED:** previously a real case ingested and then *stalled* (nothing read `document_pages`, built the graph, or flipped `ledger_complete`), so the Argument Room never opened. Fixed: when ingestion atomically flips `ingestion_complete`, the winning worker enqueues an arq job `run_ledger_build` (`backend/ledger/jobs.py`); the worker runs `build_and_persist_ledger` (`backend/ledger/service.py`) which reads case+pages+statutes via the ingestion repository, builds the graph (mock fixture with no keys / real Gemini extraction live), writes `nodes`/`edges` via asyncpg, and atomically flips `ledger_complete=true`. Idempotent (replaces any prior graph) and race-safe (only one worker wins each flip). Enqueue is by job-name only, so the ingestion lane never imports ledger code — the worker is the composition root that registers both jobs. **Edge cases handled:** mock graphs are fixtures not anchored to the uploaded docs, so the strict Fact-anchor check is skipped under `is_mock()` (keeps the full upload→ingest→ledger→room flow demoable with zero keys); a Fact's `source_document` is matched to a document UUID by `startswith` (the extraction agent may append "(page 1 · kind)"); zero-document cases still write a (mock) graph rather than hanging.
-- **Real-case orchestration handoff — NOW WIRED.** `GET /api/run/{case_id}` branches on the id shape: demo ids (`clean`/`loser`) build their ledger from the bundled claim as before; real UUIDs now run the debate **over the already-persisted graph**. `backend/ledger/service.py::load_run_inputs(case_id)` reconstructs the `ClaimInput` from `documents`/`document_pages`, loads the jurisdiction's statutes, and projects the stored Fact `nodes` into the `EvidenceLedger` (resolving `source_document_id`→filename). `run_lumen(claim, statutes, room, ledger=…)` gained an optional `ledger` arg — when passed it **skips the rebuild** and argues over the loaded facts. The server requires `ledger_complete=true` (409 otherwise) and refuses an empty ledger (409). Verified end-to-end offline with a stubbed repository: persisted graph → reconstructed claim → full 8-agent debate + 6 gates → 85% / $35,700 / escalate, confirmed running over the persisted ledger (not a rebuild). **Not yet done:** persisting the run's decision/transcript to the `runs`/`decisions`/`transcript` tables (orchestration lane, `cases.finalized`) — the result currently streams over SSE only; and a live end-to-end run against a real Supabase (DB still IPv6-unreachable from the build machine).
+- **Ledger build handoff — NOW WIRED:** previously a real case ingested and then *stalled* (nothing read `document_pages`, built the graph, or flipped `ledger_complete`), so the Argument Room never opened. Fixed: when ingestion atomically flips `ingestion_complete`, the winning worker enqueues an arq job `run_ledger_build` (`backend/ledger/jobs.py`); the worker runs `build_and_persist_ledger` (`backend/ledger/service.py`) which reads case+pages+statutes via the ingestion repository, builds the graph (mock fixture with no keys / configured Evidence Aggregator live), writes `nodes`/`edges` via asyncpg, and atomically flips `ledger_complete=true`. Idempotent (replaces any prior graph) and race-safe (only one worker wins each flip). Enqueue is by job-name only, so the ingestion lane never imports ledger code — the worker is the composition root that registers both jobs. **Edge cases handled:** mock graphs are fixtures not anchored to the uploaded docs, so the strict Fact-anchor check is skipped under `is_mock()` (keeps the full upload→ingest→ledger→room flow demoable with zero keys); a Fact's `source_document` is matched to a document UUID by `startswith` (the extraction agent may append "(page 1 · kind)"); zero-document cases still write a (mock) graph rather than hanging.
+- **Real-case orchestration handoff — NOW WIRED.** `GET /api/run/{case_id}` branches on the id shape: demo ids (`clean`/`loser`) build their ledger from the bundled claim as before; real UUIDs now run the debate **over the already-persisted graph**. `backend/ledger/service.py::load_run_inputs(case_id)` reconstructs the `ClaimInput` from `documents`/`document_pages`, loads the jurisdiction's statutes, and projects the stored Fact `nodes` into the `EvidenceLedger` (resolving `source_document_id`→filename). `run_lumen(claim, statutes, room, ledger=...)` gained an optional `ledger` arg - when passed it **skips the rebuild** and argues over the loaded facts. The server requires `ledger_complete=true` (409 otherwise) and refuses an empty ledger (409). On the real UUID path, orchestration inserts a `runs` row, persists every `room.post()` to `transcript`, inserts `decisions`, marks the run `completed`/`escalated`/`failed`, returns `runId`, and exposes replay/history through `/api/cases/{case_id}/runs` plus `/api/runs/{run_id}/transcript`. **Not yet done:** human approval persistence, `cases.finalized`, and reliable `cases.last_run_at` behavior.
 
 ---
 
 ## 18. Current status (what's done vs. pending)
 
-**Done + verified (mock):** Python backend; 6-gate harness; 8-agent debate; dual-family adjudication; loser/decline case; Next.js recovery-operations console; legacy TypeScript demo retained for offline `pnpm demo`; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` — write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case debate (`GET /api/run/{uuid}` runs the 8-agent debate over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=…)`) — verified end-to-end offline with a stubbed repository;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
+**Done + verified (mock):** Python backend; 6-gate harness; 8-agent debate; dual-family adjudication; loser/decline case; Next.js recovery-operations console; legacy TypeScript demo retained for offline `pnpm demo`; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` - write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case debate (`GET /api/run/{uuid}` runs the 8-agent debate over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=...)`) and persists run metadata/transcript/decision rows for replay;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
 
-**Pending / env-gated:** end-to-end live test of the full real flow (ingest→ledger→debate) against a real Supabase (needs migrations applied + `DATABASE_URL`/`REDIS_URL`; the build machine can't reach the DB over IPv6); persist real-case run results to `runs`/`decisions`/`transcript` (orchestration lane — currently SSE-only); deploy live; record demo assets; confirm provider model IDs in live consoles.
+**Pending / env-gated:** live model run of the full real flow (`ingest→ledger→debate`) against target provider accounts; human approval/finalization persistence (`cases.finalized`, `cases.last_run_at`); deploy live; record demo assets; confirm provider model IDs in live consoles.
 
 ---
 

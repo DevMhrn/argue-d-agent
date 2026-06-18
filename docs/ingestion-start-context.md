@@ -4,6 +4,8 @@
 > Purpose: complete handoff context — every decision, every rejected idea, every hypothesis tested, every constraint, every "why." Read this if you're picking up the project mid-stream, joining the team, or are a coding agent that needs grounding before touching code.
 >
 > This is NOT a summary. This is the raw mental model that informs every choice in the repo. If you find a contradiction between this doc and the code, the code is canonical for *behavior* — but this doc is canonical for *reasoning*. Resolve mismatches by updating both.
+>
+> Historical note: this file preserves session context and reasoning. Some "current status" and "pending" sections are status at the original writing. For the live implementation contract, use [`architecture.md`](./architecture.md), [`../backend/db/README.md`](../backend/db/README.md), and package READMEs.
 
 ---
 
@@ -173,9 +175,9 @@ In the demo video, point at the harness explicitly. Sample lines:
 |---|---|---|---|---|
 | Ingestion | **Aman** | `documents`, `document_pages`, `cases.ingestion_complete=true` | uploaded files | new case POST |
 | Ledger | **Gowtham** | `nodes`, `edges`, `cases.ledger_complete=true` | `documents`, `document_pages`, `statutes` | `cases.ingestion_complete=true` |
-| Orchestration | **Sudharsan** | `transcript`, `decisions`, `cases.finalized=true` | `cases`, `nodes`, `edges`, `document_pages`, `statutes` | `cases.ledger_complete=true` |
+| Orchestration | **Sudharsan** | `runs`, `transcript`, `decisions` | `cases`, `nodes`, `edges`, `document_pages`, `statutes` | `cases.ledger_complete=true` |
 
-Each lane writes only its own tables and reads only upstream tables. The boolean flags on `cases` are the cross-stage handoff. Lanes can work in parallel as long as they respect these contracts.
+Each lane writes only its own tables and reads only upstream tables. The boolean flags on `cases` are the cross-stage handoff. Human approval persistence and `cases.finalized=true` are still pending. Lanes can work in parallel as long as they respect these contracts.
 
 **This separation is explicit and load-bearing.** It's in `docs/product-context.md` (which existed before this doc) and was reinforced through multiple discussions. Do not write into another lane's tables.
 
@@ -521,7 +523,7 @@ A `Fact` from layer B is persisted as a `NodeRow` with `type='Fact'` in layer A.
 
 ## 10. Ingestion Lane (Aman's)
 
-### Current status
+### Status at original writing
 
 **Schema**: complete and ready to apply (`backend/db/migrations/001_initial.sql`).
 **Module structure**: complete (`backend/ingestion/` with all files).
@@ -534,7 +536,7 @@ A `Fact` from layer B is persisted as a `NodeRow` with `type='Fact'` in layer A.
 | Method | Path | Body | Response | Purpose |
 |---|---|---|---|---|
 | POST | `/case` | `CaseCreate` | `CaseRow` | Create a new case shell |
-| POST | `/sign-upload` | `{case_id, filename, mime_type, size, sha256}` | `{document_id, upload_url, upload_fields, storage_key}` | Reserve a documents row + return a pre-signed B2 upload URL |
+| POST | `/sign-upload` | `{case_id, filename, mime_type, size, sha256}` | `{document_id, upload_url, upload_method, upload_headers, storage_key}` | Reserve a documents row + return a pre-signed B2 PUT URL |
 | POST | `/commit` | `{document_id}` | `DocumentRow` | Confirm the file is in storage, enqueue extraction |
 | GET | `/status/{case_id}` | — | `{case, documents[], ingestion_complete}` | Polling endpoint for the frontend |
 | POST | `/finalize/{case_id}` | — | `CaseRow` | Flip `cases.ingestion_complete = true` |
@@ -1210,7 +1212,7 @@ This clarified the contracts dramatically. I formalized:
 
 - **Ingestion (Aman)** writes `documents`, `document_pages`, flips `cases.ingestion_complete`. Reads uploaded files.
 - **Ledger (Gowtham)** writes `nodes`, `edges`, flips `cases.ledger_complete`. Reads documents + document_pages + statutes. Triggered by ingestion_complete.
-- **Orchestration (Sudharsan)** writes `transcript`, `decisions`, flips `cases.finalized`. Reads everything upstream. Triggered by ledger_complete.
+- **Orchestration (Sudharsan)** writes `runs`, `transcript`, `decisions`. Reads everything upstream. Triggered by ledger_complete. Human approval persistence and `cases.finalized` are future work.
 
 The user also stipulated **cloud-only** — no local builds, no SQLite. This forced a real cloud Postgres + cloud object storage architecture from the start.
 
@@ -1220,7 +1222,7 @@ The user also stipulated **cloud-only** — no local builds, no SQLite. This for
 
 I designed the upload flow as four routes:
 - `POST /api/ingest/case` — create a case shell.
-- `POST /api/ingest/sign-upload` — body `{case_id, filename, mime_type, size, sha256}`; returns `{document_id, upload_url, upload_fields, storage_key}` (pre-signed B2 POST policy).
+- `POST /api/ingest/sign-upload` - body `{case_id, filename, mime_type, size, sha256}`; returns `{document_id, upload_url, upload_method, upload_headers, storage_key}` (pre-signed B2 PUT).
 - `POST /api/ingest/commit` — body `{document_id}`; verifies the file is in storage, flips status, enqueues extraction.
 - `GET /api/ingest/status/{case_id}` — polling endpoint.
 - `POST /api/ingest/finalize/{case_id}` — flip `cases.ingestion_complete = true`.
@@ -1493,7 +1495,7 @@ The template now leads with explanatory comments about the retirement and the po
 
 Manual SELECT queries via asyncpg confirmed: case row complete, all 5 documents present with correct kind labels, all document_pages rows present with matching char_count, retry_count=0 on every document.
 
-### 29.4 What's NOT yet exercised against real infrastructure
+### 29.4 Not yet exercised at original writing
 
 - The upload flow with real files. Seed script wrote rows directly; the `/api/ingest/*` endpoints haven't been hit against B2 yet.
 - The retry logic. Wired but no transient failure has occurred yet to prove it works.
@@ -1575,9 +1577,9 @@ All small relative to the cost of accidentally merging contradictory facts.
 
 ---
 
-## 32. Currently Pending — The Critical Path
+## 32. Pending at original writing — The Critical Path
 
-After 2026-06-18 implementation completion, the ingestion lane is fully wired and verified. What's left:
+At this point in the 2026-06-18 session, the ingestion lane was fully wired and verified. The remaining work then was:
 
 ### 32.1 Sudharsan's lane (orchestration)
 
