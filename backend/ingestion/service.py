@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
+
+log = logging.getLogger("lumen.ingestion.service")
 
 import asyncpg
 from botocore.exceptions import (
@@ -131,16 +134,20 @@ class IngestService:
         return await self._repo.create_case(payload)
 
     async def finalize_case(self, case_id: UUID) -> CaseRow:
-        """Explicitly flip `cases.ingestion_complete = true`.
+        """Explicitly flip `cases.ingestion_complete = true` AND kick off the ledger build.
 
-        Normally the auto-finalize in `extract_document` handles this when the
-        last document reaches 'extracted'. This endpoint exists as a manual
-        override and as the only path for cases with zero documents.
+        This is the path the frontend uses ("Finalize & open case"), so it must
+        trigger the ledger build itself — the worker's auto-finalize only fires on
+        the API-only path. Enqueue is idempotent (the build replaces the graph), so
+        a double-trigger with the auto-finalize is harmless.
         """
-        return await self._repo.update_case_status(
+        row = await self._repo.update_case_status(
             case_id,
             CaseStatusUpdate(ingestion_complete=True),
         )
+        job_id = await self._queue.enqueue_build_ledger(case_id)
+        log.info("finalize_case %s → enqueued ledger build job %s", case_id, job_id)
+        return row
 
     async def rebuild_ledger(self, case_id: UUID) -> str:
         """Force a fresh ledger build for a case. Use after switching to live mode,
@@ -291,7 +298,8 @@ class IngestService:
             #      → rebuild so the graph reflects the new evidence. The build is
             #      idempotent (it replaces the case's nodes/edges), so this is safe.
             if await self._repo.maybe_finalize_ingestion(doc.case_id):
-                await self._queue.enqueue_build_ledger(doc.case_id)
+                job_id = await self._queue.enqueue_build_ledger(doc.case_id)
+                log.info("case %s ingestion complete (auto-finalize) → ledger build %s", doc.case_id, job_id)
             else:
                 # The flip was a no-op — the case was ALREADY ingestion_complete
                 # (a doc added/re-extracted later, or finalize was called out of band).
@@ -299,7 +307,11 @@ class IngestService:
                 # missing graph gets refreshed. Idempotent: it replaces the graph.
                 case = await self._repo.get_case(doc.case_id)
                 if case is not None and case.ingestion_complete:
-                    await self._queue.enqueue_build_ledger(doc.case_id)
+                    job_id = await self._queue.enqueue_build_ledger(doc.case_id)
+                    log.info("case %s already complete, doc added → ledger rebuild %s", doc.case_id, job_id)
+                else:
+                    log.info("case %s not yet complete (%s docs pending) → no ledger build",
+                             doc.case_id, "still extracting" if case else "missing")
             return updated
 
         except Exception as e:  # noqa: BLE001
