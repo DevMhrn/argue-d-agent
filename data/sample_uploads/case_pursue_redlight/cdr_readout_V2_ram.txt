@@ -1,0 +1,22 @@
+BOSCH CRASH DATA RETRIEVAL (CDR) REPORT
+Vehicle: 2019 RAM 1500  (Party 2 - Robert Hale)
+Imaged by: ACTAR #2841   File complete: Yes   Multi-event: 1 of 1
+
+PRE-CRASH DATA (5 seconds, sampled at 1.0 s)
+Time(s)   Vehicle Speed(mph)   Engine RPM   Throttle(% full)   Service Brake
+-5.0      41                   1640         18.0               Off
+-4.0      42                   1690         19.2               Off
+-3.0      43                   1710         21.0               Off
+-2.0      43                   1705         20.1               Off
+-1.0      42                   1660         15.0               Off
+ 0.0      40                   1520          0.0               On
+
+EVENT DATA
+Maximum Recorded Velocity Change (Delta-V), Longitudinal: -16.4 MPH
+Time of Maximum Delta-V: 86 ms
+Driver Belt Switch Circuit: BUCKLED
+Frontal Air Bag Deployment, Time to Deploy: 41 ms
+Ignition Cycle, Crash: 9,517
+
+Interpretation: Party 2's vehicle was traveling 40-43 mph in the 5 seconds before impact
+with no brake application until 0.0 s, indicating the driver did not slow for the signal.

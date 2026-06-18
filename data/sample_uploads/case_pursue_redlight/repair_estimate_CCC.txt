@@ -1,0 +1,30 @@
+CCC ONE ESTIMATE - Preliminary
+Shop: Westgate Collision Center, 1422 S Vermont Ave, Los Angeles, CA
+Claimant Vehicle: 2023 Subaru Outback Limited   VIN: 4S4BTGLD2P3xxxxxx   Mileage: 21,403
+Insured: Daniel Cho     Claim: PA-2026-77310     Estimator: J. Whitfield
+
+Line  Oper  Description                          Part Number     Qty   Price$    Labor
+1     Repl  Door shell, front left               61021AL00A      1     842.00    3.5
+2     R&I   Door trim panel, front left                          1               1.2
+3     Repl  Outer mirror, left (power, heated)   91036AL21A      1     388.00    0.6
+4     Repl  Front door glass, left               61011AL01A      1     214.00    1.0
+5     Rpr   Quarter panel, left                                  1               4.8
+6     Repl  Alloy wheel, front left              28111AL02A      1     596.00    0.5
+7     R&R   Front suspension lower arm, left     20202AL09A      1     472.00    2.6
+8     Refn  Door shell, front left (clearcoat)                   1               2.8
+9     Blnd  Quarter panel, left (blend)                          1               1.5
+10    Subl  Wheel alignment (4-wheel)                            1     149.00    T
+
+TOTALS
+Parts ................................. 3,253.00
+Body Labor   22.5 hrs @ $62.00/hr ..... 1,395.00
+Paint Labor   8.4 hrs @ $62.00/hr .....   520.80
+Mechanical    5.2 hrs @ $98.00/hr .....   509.60
+Paint Supplies ........................   294.00
+Sublet ................................   149.00
+Subtotal .............................. 6,121.40
+Sales Tax @ 9.5% ......................   581.53
+TOTAL COST OF REPAIRS ................. 6,702.93
+
+Note: vehicle also declared a partial total on prior estimate; supplement pending.
+Total documented damages for this claim, including diminished value and rental: $18,470.00

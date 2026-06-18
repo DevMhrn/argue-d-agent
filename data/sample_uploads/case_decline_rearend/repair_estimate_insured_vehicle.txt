@@ -1,0 +1,22 @@
+REPAIR ESTIMATE (Mitchell)
+Shop: Crown City Auto Body, Pasadena, CA
+Vehicle: 2022 Toyota RAV4 XLE (Insured - Megan Ross)   Claim: SS-2026-30021
+
+Line  Oper  Description                       Qty   Price$   Labor
+1     Repl  Front bumper cover                1     412.00   2.0
+2     Repl  Bumper absorber                   1      96.00   0.4
+3     Rpr   Hood                              1               2.5
+4     Repl  Grille assembly                   1     268.00   0.7
+5     Refn  Front bumper cover                1               2.2
+
+TOTALS
+Parts ............................. 776.00
+Body Labor 5.6 hrs @ $60/hr ....... 336.00
+Paint Labor 2.2 hrs @ $60/hr ...... 132.00
+Paint Supplies .................... 110.00
+Subtotal ......................... 1,354.00
+Sales Tax @ 9.5% ..................  128.63
+TOTAL ............................ 1,482.63
+
+NOTE: This estimate is for OUR INSURED's own vehicle (the at-fault, following vehicle).
+Other party (Ortega) rear damage estimate, provided separately: $3,150.00.
