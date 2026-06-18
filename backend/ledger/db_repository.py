@@ -61,7 +61,13 @@ class LedgerWriteRepository:
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                # Replace any prior graph so a re-run (arq retry) is idempotent.
+                # Serialize concurrent builds for the SAME case. Two triggers can race
+                # past arq's queue-only de-dup and run at once; without this they both
+                # delete-then-insert and collide on the (case_id, node_id) unique key.
+                # The advisory lock is held only for these fast DB writes (the slow
+                # model call already happened in build_ledger) and releases at commit.
+                await conn.execute("select pg_advisory_xact_lock(hashtext($1)::bigint)", str(case_id))
+                # Replace any prior graph so a re-run (arq retry / second trigger) is idempotent.
                 # Deleting nodes cascades to edges; we delete edges first to be explicit.
                 await conn.execute("delete from edges where case_id = $1", case_id)
                 await conn.execute("delete from nodes where case_id = $1", case_id)
