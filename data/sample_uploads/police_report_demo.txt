@@ -1,55 +1,58 @@
 CALIFORNIA TRAFFIC COLLISION REPORT
-Report Number: SF-2026-04417
-Investigating Agency: San Francisco Police Department, Traffic Division
-Date of Collision: March 14, 2026          Time: 08:42 hours
-Location: Intersection of Folsom Street and 7th Street, San Francisco, CA
+Report Number: SAC-2026-09231
+Investigating Agency: Sacramento Police Department, Traffic Division
+Date of Collision: April 2, 2026          Time: 17:24 hours
+Location: Intersection of Broadway and 5th Avenue, Sacramento, CA
 
 PARTIES
-Party 1 (Insured / our claimant): Maria Rivera, operating a 2023 Toyota Camry,
-  license 8XYZ123, traveling northbound on 7th Street.
-Party 2 (Other driver): Daniel Blake, operating a 2021 Ford F-150,
-  license 6ABC789, traveling eastbound on Folsom Street.
+Party 1 (Insured / our claimant): Priya Sharma, operating a 2024 Honda Accord,
+  license 7KLM402, traveling westbound on Broadway.
+Party 2 (Other driver): Marcus Webb, operating a 2020 Chevrolet Silverado,
+  license 5RTP918, traveling southbound on 5th Avenue.
 
 NARRATIVE
-At approximately 08:42, Party 1 (Rivera) entered the intersection of 7th Street
-and Folsom Street while facing a steady green signal in the northbound direction.
-Party 2 (Blake) entered the same intersection traveling eastbound against a steady
-red signal and struck the front passenger side of Party 1's vehicle.
+At approximately 17:24, Party 1 (Sharma) entered the intersection of Broadway and
+5th Avenue while facing a steady green signal in the westbound direction. Party 2
+(Webb) entered the same intersection traveling southbound and failed to stop for a
+steady red signal, striking the driver side of Party 1's vehicle.
 
-Independent witness Karen Osei, standing at the northwest corner, stated: "The
-silver car had the green. The pickup blew through the red, going maybe 50." The
-posted speed limit on Folsom Street at this location is 35 mph. Signal timing
-records obtained from the SFMTA confirm the northbound 7th Street approach held a
-green indication at the time of impact.
+Independent witness Thomas Nguyen, waiting at the southeast corner, stated: "The
+Honda clearly had the green. The pickup never slowed down — it ran the red light
+and T-boned her." The posted speed limit on 5th Avenue at this location is 30 mph.
+Data from the Silverado's event data recorder shows a pre-impact speed of 48 mph.
+Signal timing records from the City of Sacramento confirm the westbound Broadway
+approach held a green indication at the moment of impact.
 
 CITATION
-Party 2 (Daniel Blake) was cited at the scene under California Vehicle Code
-section 21453(a) for failing to stop at a steady red signal. No citation was
-issued to Party 1.
+Party 2 (Marcus Webb) was cited at the scene under California Vehicle Code section
+21453(a) for failing to stop at a steady red signal. No citation was issued to
+Party 1.
 
 VEHICLE DAMAGE
-Party 1 (Toyota Camry): heavy damage to the front passenger side door, quarter
-panel, and wheel assembly; airbags deployed. Vehicle towed from scene.
-Party 2 (Ford F-150): moderate front-end damage to the bumper and grille.
+Party 1 (Honda Accord): heavy damage to the driver side doors, B-pillar, and front
+wheel; side curtain airbags deployed. Vehicle towed from scene.
+Party 2 (Chevrolet Silverado): moderate front-end damage.
 
 INJURIES
-Party 1 reported neck and shoulder pain and was evaluated by paramedics at the
-scene. No injuries reported by Party 2.
+Party 1 reported left arm and rib pain and was transported for evaluation. No
+injuries reported by Party 2.
 
 OFFICER ASSESSMENT
-Based on the physical evidence, the witness statement, the signal timing records,
-and the citation issued, the primary cause of this collision was Party 2's entry
-into the intersection against a red signal in violation of CVC 21453(a).
-Reporting Officer: J. Tan, Badge 4471.
+Based on the physical evidence, the witness statement, the EDR data, the signal
+timing records, and the citation issued, the primary cause of this collision was
+Party 2's failure to stop for a red signal in violation of CVC 21453(a).
+Reporting Officer: L. Okafor, Badge 5582.
 
 ----------------------------------------------------------------------
 
 REPAIR ESTIMATE (attached)
-Shop: Mission Auto Body, San Francisco, CA
-Vehicle: 2023 Toyota Camry (Party 1)
-  Front passenger door replacement ............ $1,850
-  Quarter panel repair and refinish ........... $2,400
-  Wheel and suspension assembly ............... $3,100
-  Airbag module replacement ................... $2,650
-  Paint, materials, and labor ................. $1,600
-  TOTAL DOCUMENTED DAMAGES .................... $11,600
+Shop: Capitol Collision Center, Sacramento, CA
+Vehicle: 2024 Honda Accord (Party 1)
+  Driver front and rear door replacement ...... $4,300
+  B-pillar structural repair .................. $5,900
+  Front wheel and suspension .................. $3,200
+  Side curtain airbag module .................. $2,800
+  Paint, materials, and labor ................. $2,250
+  Towing and storage .......................... $500
+  Diagnostic and alignment .................... $1,200
+  TOTAL DOCUMENTED DAMAGES .................... $23,450
