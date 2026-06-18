@@ -74,7 +74,11 @@ async def on_startup(ctx: dict[str, Any]) -> None:
     queue = ExtractionQueue()
     ctx["service"] = IngestService(repo=repo, storage=storage, queue=queue)
     ctx["queue"] = queue
-    log.info("ingestion worker ready — REDIS connected, services initialized")
+    from backend.app.providers import is_mock  # local import: avoid load-order surprises
+    log.info(
+        "ingestion worker ready — REDIS connected, services initialized — model mode: %s",
+        "MOCK (no provider keys → ledger uses canned fixtures)" if is_mock() else "LIVE (real extraction)",
+    )
 
 
 async def on_shutdown(ctx: dict[str, Any]) -> None:
