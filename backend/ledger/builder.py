@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 
-from backend.app.config import MODELS
+from backend.app.agents import AGENTS
 from backend.app.providers import chat, is_mock
 from backend.app.types import ClaimInput, Statute, EvidenceLedger, Fact
 
@@ -59,9 +59,12 @@ async def build_ledger(claim: ClaimInput, statutes: list[Statute]) -> LedgerGrap
 
     docs_text = "\n\n".join(f"### {d.name} (page 1 · {d.kind})\n{d.text}" for d in claim.documents)
     stat_text = "\n".join(f"[{s.id}] {s.title}" for s in statutes)
+    # Use the Evidence Aggregator's configured provider/model so the ledger build
+    # stays in lockstep with agents.py (currently OpenAI; swap there to repoint).
+    evidence = AGENTS["evidence"]
     raw = await chat(
-        provider="gemini",
-        model=MODELS["evidence"],
+        provider=evidence.provider,
+        model=evidence.model,
         system=EXTRACTION_PROMPT,
         user=f"CASE {claim.caseId}\n\nDOCUMENTS:\n{docs_text}\n\nAVAILABLE STATUTES:\n{stat_text}\n\nExtract the evidence-ledger graph.",
         mock_key="ledger_graph",
