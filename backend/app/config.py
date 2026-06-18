@@ -51,7 +51,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
 # running live (override via env). Irrelevant in mock mode.
 MODELS = {
     "intake": os.getenv("MODEL_INTAKE", "gpt-4o-mini"),
-    "evidence": os.getenv("MODEL_EVIDENCE", "gpt-4o-mini"),
+    "evidence": os.getenv("MODEL_EVIDENCE", "gpt-5.4-mini"),
     "advocate": os.getenv("MODEL_ADVOCATE", "claude-opus-4-8"),
     "opposing": os.getenv("MODEL_OPPOSING", "gpt-4o"),
     "adjudicator": os.getenv("MODEL_ADJUDICATOR", "claude-opus-4-8"),
