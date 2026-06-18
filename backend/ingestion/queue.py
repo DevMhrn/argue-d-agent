@@ -81,12 +81,19 @@ class ExtractionQueue:
             )
         return job.job_id
 
-    async def enqueue_build_ledger(self, case_id: UUID) -> str:
-        """Queue a ledger-build job for a case whose ingestion just completed.
-        Routed by name to the worker's run_ledger_build function. Returns the job id."""
+    async def enqueue_build_ledger(self, case_id: UUID, *, job_id: str | None = None) -> str:
+        """Queue a ledger-build job. Routed by name to the worker's run_ledger_build.
+
+        Pass `job_id` to de-duplicate: arq drops a second enqueue while a job with
+        the same id is queued/running, so the initial-build triggers (auto-finalize
+        + the finalize endpoint) collapse into ONE build. Leave `job_id` unset for
+        explicit rebuilds (add-a-doc, manual) so they always run."""
         pool = await self._get_pool()
-        job = await pool.enqueue_job(self.LEDGER_JOB_NAME, str(case_id))
+        job = await pool.enqueue_job(self.LEDGER_JOB_NAME, str(case_id), _job_id=job_id)
         if job is None:
+            if job_id is not None:
+                # A build for this case is already queued/running — intended de-dup.
+                return job_id
             raise RuntimeError(
                 f"Failed to enqueue {self.LEDGER_JOB_NAME}({case_id}) — arq returned None."
             )

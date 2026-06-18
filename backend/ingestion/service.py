@@ -145,8 +145,10 @@ class IngestService:
             case_id,
             CaseStatusUpdate(ingestion_complete=True),
         )
-        job_id = await self._queue.enqueue_build_ledger(case_id)
-        log.info("finalize_case %s → enqueued ledger build job %s", case_id, job_id)
+        # Same de-dup id as the worker's auto-finalize, so whichever fires first wins
+        # and the other collapses into it — exactly one initial build per case.
+        job_id = await self._queue.enqueue_build_ledger(case_id, job_id=f"ledger-init-{case_id}")
+        log.info("finalize_case %s → ledger build (de-duped) %s", case_id, job_id)
         return row
 
     async def rebuild_ledger(self, case_id: UUID) -> str:
@@ -298,7 +300,9 @@ class IngestService:
             #      → rebuild so the graph reflects the new evidence. The build is
             #      idempotent (it replaces the case's nodes/edges), so this is safe.
             if await self._repo.maybe_finalize_ingestion(doc.case_id):
-                job_id = await self._queue.enqueue_build_ledger(doc.case_id)
+                # Initial build — share the de-dup id with finalize_case so the two
+                # collapse into one (whichever the frontend/worker fires first wins).
+                job_id = await self._queue.enqueue_build_ledger(doc.case_id, job_id=f"ledger-init-{doc.case_id}")
                 log.info("case %s ingestion complete (auto-finalize) → ledger build %s", doc.case_id, job_id)
             else:
                 # The flip was a no-op — the case was ALREADY ingestion_complete
