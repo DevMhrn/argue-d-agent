@@ -47,8 +47,13 @@ def dry_run(graph: LedgerGraph, case_id: UUID | None = None) -> tuple[list[NodeC
 
 
 class LedgerRepository:
-    """Real Supabase writes. Construct via from_env() once SUPABASE_URL +
-    SUPABASE_SERVICE_KEY are set. Methods are no-ops to write until then."""
+    """Legacy sync Supabase (supabase-py) writes — kept ONLY for the standalone
+    `build_demo --persist` tool, which builds a graph from an in-memory claim
+    rather than from ingested rows. The real ingestion->ledger->room flow uses the
+    async path in `db_repository.py` (asyncpg, the team standard). Do not call this
+    from request/worker code — supabase-py is sync and blocks the event loop.
+
+    Construct via from_env() once SUPABASE_URL + SUPABASE_SERVICE_KEY are set."""
 
     def __init__(self, client):
         self.client = client
@@ -60,8 +65,8 @@ class LedgerRepository:
         return cls(create_client(url, key))
 
     def _document_ids(self, case_id: UUID) -> dict[str, UUID]:
-        rows = self.client.table("documents").select("id, name").eq("case_id", str(case_id)).execute()
-        return {r["name"]: UUID(r["id"]) for r in (rows.data or [])}
+        rows = self.client.table("documents").select("id, filename").eq("case_id", str(case_id)).execute()
+        return {r["filename"]: UUID(r["id"]) for r in (rows.data or [])}
 
     def write_graph(self, case_id: UUID, graph: LedgerGraph) -> None:
         # Phase 1: insert nodes, capture their generated UUIDs by display node_id.
