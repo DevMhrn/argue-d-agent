@@ -51,6 +51,22 @@ function isTerminal(s: DocumentRow["status"]): boolean {
 }
 
 export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
+  const { docs, files, addFiles, rejectedNote, summary } = useDocumentsPanel({
+    caseUuid,
+    initialDocuments,
+  });
+
+  return (
+    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
+      <DocumentsHeader summary={summary} />
+      <ServerDocuments docs={docs} />
+      <LocalUploads files={files} />
+      <UploadFooter addFiles={addFiles} rejectedNote={rejectedNote} />
+    </section>
+  );
+}
+
+function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
   const [docs, setDocs] = useState<DocumentRow[]>(initialDocuments);
   const [rejectedNote, setRejectedNote] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -99,32 +115,16 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
 
   // Poll while any server-side doc is non-terminal OR any local upload is in flight.
   useEffect(() => {
-    const needsPoll = docs.some((d) => !isTerminal(d.status)) || anyInFlight;
-    if (!needsPoll) {
-      if (intervalRef.current) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+    if (!shouldPollDocuments(docs, anyInFlight)) {
+      clearPollInterval(intervalRef);
       return;
     }
     if (intervalRef.current) return; // already polling
     intervalRef.current = window.setInterval(() => {
-      (async () => {
-        try {
-          const status = await getCaseStatus(caseUuid);
-          setDocs(status.documents);
-          // Drop any local chips whose document is now visible on the server.
-          clearCommitted(new Set(status.documents.map((d) => d.id)));
-        } catch {
-          // ignore transient poll failures
-        }
-      })();
+      void refreshDocuments(caseUuid, setDocs, clearCommitted);
     }, 1500);
     return () => {
-      if (intervalRef.current) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      clearPollInterval(intervalRef);
     };
   }, [docs, anyInFlight, caseUuid, clearCommitted]);
 
@@ -138,82 +138,183 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
   const extracted = docs.filter((d) => d.status === "extracted").length;
   const failed = docs.filter((d) => d.status === "failed").length;
 
+  return {
+    docs,
+    files,
+    addFiles,
+    rejectedNote,
+    summary: { extracted, total: docs.length, failed },
+  };
+}
+
+interface IntervalRef {
+  current: number | null;
+}
+
+function shouldPollDocuments(
+  docs: DocumentRow[],
+  anyInFlight: boolean,
+): boolean {
+  return docs.some((doc) => !isTerminal(doc.status)) || anyInFlight;
+}
+
+function clearPollInterval(intervalRef: IntervalRef) {
+  if (!intervalRef.current) return;
+  window.clearInterval(intervalRef.current);
+  intervalRef.current = null;
+}
+
+async function refreshDocuments(
+  caseUuid: string,
+  setDocs: (docs: DocumentRow[]) => void,
+  clearCommitted: (knownIds: Set<string>) => void,
+) {
+  try {
+    const status = await getCaseStatus(caseUuid);
+    setDocs(status.documents);
+    clearCommitted(new Set(status.documents.map((doc) => doc.id)));
+  } catch {
+    // ignore transient poll failures
+  }
+}
+
+interface DocumentsSummary {
+  extracted: number;
+  total: number;
+  failed: number;
+}
+
+function DocumentsHeader({ summary }: { summary: DocumentsSummary }) {
   return (
-    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
-      <header className="mb-3 flex items-baseline justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-base tracking-tight">Documents</h3>
-          <p className="mt-0.5 text-[12px] text-muted">
-            Raw bytes in Backblaze · extracted text + metadata in Supabase.
-          </p>
-        </div>
-        <span className="text-[12px] text-muted-2">
-          {extracted} / {docs.length} extracted
-          {failed ? ` · ${failed} failed` : ""}
-        </span>
-      </header>
-
-      {/* Server-side document list */}
-      {docs.length === 0 ? (
-        <p className="text-[13px] text-muted">
-          No documents uploaded for this case yet.
+    <header className="mb-3 flex items-baseline justify-between gap-3">
+      <div>
+        <h3 className="font-semibold text-base tracking-tight">Documents</h3>
+        <p className="mt-0.5 text-[12px] text-muted">
+          Raw bytes in Backblaze · extracted text + metadata in Supabase.
         </p>
-      ) : (
-        <ul className="grid gap-2">
-          {docs.map((d) => (
-            <li
-              key={d.id}
-              className="flex items-center justify-between gap-3 rounded-pill border border-border-soft bg-panel-2 px-3 py-2"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px]">{d.filename}</div>
-                <div className="mt-0.5 flex items-baseline gap-3 font-mono text-[11px] text-muted-2">
-                  <span>{(d.file_size_bytes / 1024).toFixed(1)} KB</span>
-                  <span>·</span>
-                  <span>{d.mime_type.split("/").pop()}</span>
-                  {d.page_count != null ? (
-                    <span>· {d.page_count} pages</span>
-                  ) : null}
-                  {d.retry_count > 0 ? (
-                    <span className="text-warn">
-                      · retried {d.retry_count}×
-                    </span>
-                  ) : null}
-                </div>
-                {d.extraction_error ? (
-                  <div className="mt-1 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
-                    {d.extraction_error}
-                  </div>
-                ) : null}
-              </div>
-              <span
-                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium text-[10.5px] uppercase tracking-wider ${STATUS_TONE[d.status]}`}
-              >
-                {STATUS_LABEL[d.status]}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Local in-flight chips (uploads happening right now in this browser) */}
-      {files.length > 0 ? (
-        <ul className="mt-3 grid gap-2">
-          {files.map((f) => (
-            <FileRow key={f.uid} row={f} />
-          ))}
-        </ul>
-      ) : null}
-
-      {/* Inline drop zone — add more evidence at any time */}
-      <div className="mt-4">
-        <UploadZone onFiles={addFiles} />
-        {rejectedNote ? (
-          <div className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1 text-[12px] text-warn">
-            {rejectedNote}
-          </div>
-        ) : null}
       </div>
-    </section>
+      <span className="text-[12px] text-muted-2">
+        {summary.extracted} / {summary.total} extracted
+        {failedText(summary.failed)}
+      </span>
+    </header>
+  );
+}
+
+function failedText(failed: number): string {
+  return failed ? ` · ${failed} failed` : "";
+}
+
+function ServerDocuments({ docs }: { docs: DocumentRow[] }) {
+  if (docs.length === 0) {
+    return (
+      <p className="text-[13px] text-muted">
+        No documents uploaded for this case yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="grid gap-2">
+      {docs.map((doc) => (
+        <ServerDocumentRow key={doc.id} doc={doc} />
+      ))}
+    </ul>
+  );
+}
+
+function ServerDocumentRow({ doc }: { doc: DocumentRow }) {
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-pill border border-border-soft bg-panel-2 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px]">{doc.filename}</div>
+        <DocumentMeta doc={doc} />
+        <ExtractionError error={doc.extraction_error} />
+      </div>
+      <StatusBadge status={doc.status} />
+    </li>
+  );
+}
+
+function DocumentMeta({ doc }: { doc: DocumentRow }) {
+  return (
+    <div className="mt-0.5 flex items-baseline gap-3 font-mono text-[11px] text-muted-2">
+      <span>{(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
+      <span>·</span>
+      <span>{doc.mime_type.split("/").pop()}</span>
+      <PageCount count={doc.page_count} />
+      <RetryCount count={doc.retry_count} />
+    </div>
+  );
+}
+
+function PageCount({ count }: { count: number | null }) {
+  return count != null ? <span>· {count} pages</span> : null;
+}
+
+function RetryCount({ count }: { count: number }) {
+  return count > 0 ? (
+    <span className="text-warn">· retried {count}×</span>
+  ) : null;
+}
+
+function ExtractionError({ error }: { error: string | null }) {
+  if (!error) return null;
+
+  return (
+    <div className="mt-1 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
+      {error}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: DocumentRow["status"] }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium text-[10.5px] uppercase tracking-wider ${STATUS_TONE[status]}`}
+    >
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function LocalUploads({
+  files,
+}: {
+  files: ReturnType<typeof useCaseUpload>["files"];
+}) {
+  if (files.length === 0) return null;
+
+  return (
+    <ul className="mt-3 grid gap-2">
+      {files.map((file) => (
+        <FileRow key={file.uid} row={file} />
+      ))}
+    </ul>
+  );
+}
+
+function UploadFooter({
+  addFiles,
+  rejectedNote,
+}: {
+  addFiles: ReturnType<typeof useCaseUpload>["addFiles"];
+  rejectedNote: string | null;
+}) {
+  return (
+    <div className="mt-4">
+      <UploadZone onFiles={addFiles} />
+      <RejectedNote note={rejectedNote} />
+    </div>
+  );
+}
+
+function RejectedNote({ note }: { note: string | null }) {
+  if (!note) return null;
+
+  return (
+    <div className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1 text-[12px] text-warn">
+      {note}
+    </div>
   );
 }

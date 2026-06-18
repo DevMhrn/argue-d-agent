@@ -52,25 +52,27 @@ Preserve the central safety rules: downstream agents must cite existing fact IDs
 <!-- fallow:setup-hooks:start -->
 ## Fallow local gate
 
-Before any `git commit` or `git push`, run `bunx fallow audit --format json --quiet --explain --gate-marker agent`. If the verdict is `fail`, fix the reported findings before retrying. Treat JSON runtime errors like `{ "error": true, ... }` as non-blocking.
+Before any `git commit` or `git push`, run `pnpx fallow audit --format json --quiet --explain --gate-marker agent` from the repo root. If the verdict is `fail`, fix the reported findings before retrying. Treat JSON runtime errors like `{ "error": true, ... }` as non-blocking.
 
 Audit defaults to `gate=new-only`: only findings introduced by the current changeset affect the verdict. Inherited findings on touched files are reported under `attribution` and annotated with `introduced: false`, but do not block the commit. Set `[audit] gate = "all"` in `fallow.toml` to gate every finding in changed files.
 
-For non-skill agents, treat the task map below as the local onboarding source: run the listed fallow command before destructive edits, before commits, and before pull request handoff.
+The local `fallow.toml` scopes analysis to active code by ignoring the legacy TypeScript demo paths `src/**`, `server/**`, and `frontend/_legacy/**`, plus the root-only legacy dependencies listed under `ignoreDependencies`. Run `pnpx fallow` before handoff when changing frontend structure, and run the audit command before commits.
+
+For non-skill agents, treat the task map below as the local onboarding source: run the listed `pnpx fallow` command before destructive edits, before commits, and before pull request handoff.
 
 ## Fallow task map
 
 | When the agent is about to... | Run |
 |---|---|
-| delete an "unused" export or file | `fallow dead-code --trace <file>:<export>` |
-| delete an "unused" dependency | `fallow dead-code --trace-dependency <name>` |
-| commit or open a PR | `fallow audit --base <ref>` |
-| prioritize refactoring | `fallow health --hotspots --targets` |
-| ask who owns code | `fallow health --ownership` |
-| check untested-but-reachable code | `fallow health --coverage-gaps` |
-| consolidate duplication | `fallow dupes --trace dup:<fingerprint>` |
-| find feature flags | `fallow flags` |
-| surface security candidates | `fallow security` |
-| understand a finding | `fallow explain <issue-type>` |
+| delete an "unused" export or file | `pnpx fallow dead-code --trace <file>:<export>` |
+| delete an "unused" dependency | `pnpx fallow dead-code --trace-dependency <name>` |
+| commit or open a PR | `pnpx fallow audit --base <ref>` |
+| prioritize refactoring | `pnpx fallow health --hotspots --targets` |
+| ask who owns code | `pnpx fallow health --ownership` |
+| check untested-but-reachable code | `pnpx fallow health --coverage-gaps` |
+| consolidate duplication | `pnpx fallow dupes --trace dup:<fingerprint>` |
+| find feature flags | `pnpx fallow flags` |
+| surface security candidates | `pnpx fallow security` |
+| understand a finding | `pnpx fallow explain <issue-type>` |
 | scope a monorepo | `--workspace <glob> / --changed-workspaces <ref>` (global flags, prefix any command) |
 <!-- fallow:setup-hooks:end -->

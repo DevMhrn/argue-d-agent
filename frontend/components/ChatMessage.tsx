@@ -49,54 +49,99 @@ export function ChatMessageBubble({ msg }: { msg: ChatMessage }) {
   return (
     <article className={`flex w-full ${align}`}>
       <div className={`flex max-w-[88%] gap-3 ${bubbleAlign}`}>
-        <div
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-semibold text-[11px] ${AVATAR_STYLES[msg.role]}`}
-        >
-          {msg.role === "lumen" ? "L" : msg.role === "user" ? "•" : "i"}
-        </div>
-        <div
-          className={`min-w-0 flex-1 rounded-card border px-4 py-3 shadow-card ${ROLE_STYLES[msg.role]}`}
-        >
-          <header className="mb-1 flex items-baseline justify-between gap-3">
-            <span className="text-[11px] text-muted-2 uppercase tracking-wider">
-              {ROLE_LABEL[msg.role]}
-            </span>
-          </header>
-          {msg.text ? (
-            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed">
-              {msg.text}
-              {msg.pending ? <PendingDots /> : null}
-            </p>
-          ) : null}
-          {msg.form ? <div className="mt-3">{msg.form}</div> : null}
-          {msg.attachments && msg.attachments.length > 0 ? (
-            <ul className="mt-3 space-y-2">
-              {msg.attachments.map((f) => (
-                <FileRow key={f.uid} row={f} />
-              ))}
-            </ul>
-          ) : null}
-          {msg.action ? (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={msg.action.onClick}
-                disabled={msg.action.disabled}
-                className={`rounded-pill border px-4 py-2 text-sm transition-colors ${
-                  msg.action.tone === "ok"
-                    ? "border-ok/40 bg-ok/15 text-ok hover:bg-ok/25"
-                    : "border-accent/40 bg-accent/15 text-accent hover:bg-accent/25"
-                } disabled:opacity-50`}
-              >
-                {msg.action.label}
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <MessageAvatar role={msg.role} />
+        <MessageBody msg={msg} />
       </div>
     </article>
   );
 }
+
+function MessageAvatar({ role }: { role: ChatRole }) {
+  return (
+    <div
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-semibold text-[11px] ${AVATAR_STYLES[role]}`}
+    >
+      {AVATAR_LABEL[role]}
+    </div>
+  );
+}
+
+const AVATAR_LABEL: Record<ChatRole, string> = {
+  user: "•",
+  lumen: "L",
+  system: "i",
+};
+
+function MessageBody({ msg }: { msg: ChatMessage }) {
+  return (
+    <div
+      className={`min-w-0 flex-1 rounded-card border px-4 py-3 shadow-card ${ROLE_STYLES[msg.role]}`}
+    >
+      <MessageHeader role={msg.role} />
+      <MessageText text={msg.text} pending={msg.pending} />
+      {msg.form ? <div className="mt-3">{msg.form}</div> : null}
+      <Attachments files={msg.attachments} />
+      <MessageAction action={msg.action} />
+    </div>
+  );
+}
+
+function MessageHeader({ role }: { role: ChatRole }) {
+  return (
+    <header className="mb-1 flex items-baseline justify-between gap-3">
+      <span className="text-[11px] text-muted-2 uppercase tracking-wider">
+        {ROLE_LABEL[role]}
+      </span>
+    </header>
+  );
+}
+
+function MessageText({ text, pending }: { text?: string; pending?: boolean }) {
+  if (!text) return null;
+
+  return (
+    <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed">
+      {text}
+      {pending ? <PendingDots /> : null}
+    </p>
+  );
+}
+
+function Attachments({ files }: { files?: LocalFile[] }) {
+  if (!files?.length) return null;
+
+  return (
+    <ul className="mt-3 space-y-2">
+      {files.map((file) => (
+        <FileRow key={file.uid} row={file} />
+      ))}
+    </ul>
+  );
+}
+
+function MessageAction({ action }: { action?: ChatMessage["action"] }) {
+  if (!action) return null;
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={action.onClick}
+        disabled={action.disabled}
+        className={`rounded-pill border px-4 py-2 text-sm transition-colors ${ACTION_TONE[action.tone ?? "primary"]} disabled:opacity-50`}
+      >
+        {action.label}
+      </button>
+    </div>
+  );
+}
+
+type ActionTone = NonNullable<NonNullable<ChatMessage["action"]>["tone"]>;
+
+const ACTION_TONE: Record<ActionTone, string> = {
+  ok: "border-ok/40 bg-ok/15 text-ok hover:bg-ok/25",
+  primary: "border-accent/40 bg-accent/15 text-accent hover:bg-accent/25",
+};
 
 function PendingDots() {
   return (

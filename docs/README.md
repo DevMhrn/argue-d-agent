@@ -12,6 +12,7 @@ Use this directory for durable project context, design notes, architecture recor
 - [Backend README](../backend/README.md) - production Python lane map, local commands, ingestion test notes.
 - [Frontend README](../frontend/README.md) - Next.js console routes, API contracts, upload behavior.
 - [Contributor Guide](../AGENTS.md) - repository conventions for coding agents and human contributors.
+- [Fallow local gate](../AGENTS.md#fallow-local-gate) - repo health checks, audit gate, and legacy ignore scope.
 
 ## Suggested Structure
 

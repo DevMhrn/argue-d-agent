@@ -1,50 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-
+import { RoomTranscript } from "@/components/RoomTranscript";
 import type { RoomPosting } from "@/lib/types";
-
-/**
- * The Argument Room — where the agents convene to debate once the ledger is
- * locked. Three modes:
- *   - locked    : ledger isn't ready yet; CTA disabled with a clear reason
- *   - ready     : ledger is built; CTA opens the room
- *   - in-session: SSE is streaming; transcript scrolls live
- */
-const AGENT_META: Record<string, { role: string; color: string }> = {
-  "Intake Parser": {
-    role: "Extracts incident facts",
-    color: "text-agent-intake",
-  },
-  "Evidence Aggregator": {
-    role: "Builds the grounded ledger",
-    color: "text-agent-evidence",
-  },
-  "Liability Advocate": {
-    role: "Argues our insured's recovery",
-    color: "text-agent-advocate",
-  },
-  "Opposing-Carrier Red Team": {
-    role: "Attacks the case (red team)",
-    color: "text-agent-opposing",
-  },
-  "Adjudicator A": {
-    role: "Neutral referee · Claude",
-    color: "text-agent-adj-a",
-  },
-  "Adjudicator B": {
-    role: "Independent referee · Gemini",
-    color: "text-agent-adj-b",
-  },
-  "Source-Alignment Verifier": {
-    role: "Audits cited claims",
-    color: "text-agent-verifier",
-  },
-  "Demand Letter Drafter": {
-    role: "Drafts the demand letter",
-    color: "text-agent-drafter",
-  },
-};
 
 interface Props {
   status: "idle" | "connecting" | "streaming" | "complete" | "error";
@@ -55,6 +12,15 @@ interface Props {
   onRun: () => void;
 }
 
+type RoomStatus = Props["status"];
+
+const ROOM_BADGE_TONE = {
+  locked: "border-warn/40 bg-warn/10 text-warn",
+  complete: "border-ok/40 bg-ok/10 text-ok",
+  running: "border-accent/40 bg-accent/10 text-accent",
+  ready: "border-ok/40 bg-ok/10 text-ok",
+} as const;
+
 export function ArgumentRoom({
   status,
   postings,
@@ -63,139 +29,145 @@ export function ArgumentRoom({
   lockedReason,
   onRun,
 }: Props) {
-  const feedRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    feedRef.current?.scrollTo({
-      top: feedRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [postings.length]);
-
   const isLocked = !canRun;
   const running = status === "streaming" || status === "connecting";
 
   return (
     <section className="flex h-full flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
-      <header className="flex items-center justify-between gap-3 border-border-soft border-b p-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-base tracking-tight">
-              Argument Room
-            </h2>
-            {isLocked ? (
-              <span className="rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[10px] text-warn uppercase tracking-wider">
-                Locked
-              </span>
-            ) : status === "complete" ? (
-              <span className="rounded-full border border-ok/40 bg-ok/10 px-2 py-0.5 text-[10px] text-ok uppercase tracking-wider">
-                Adjourned
-              </span>
-            ) : running ? (
-              <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] text-accent uppercase tracking-wider">
-                In session
-              </span>
-            ) : (
-              <span className="rounded-full border border-ok/40 bg-ok/10 px-2 py-0.5 text-[10px] text-ok uppercase tracking-wider">
-                Ready
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-[12px] text-muted">
-            Agents convene over the locked Evidence Ledger. Gates fire on their
-            own — they are code, not prompts.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {bandRoomId ? (
-            <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 font-mono text-[11px] text-accent">
-              band: {bandRoomId.slice(0, 8)}…
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={isLocked || running}
-            className="rounded-pill border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
-          >
-            {running
-              ? "In session…"
-              : status === "complete"
-                ? "Reconvene the band"
-                : "Open the room"}
-          </button>
-        </div>
-      </header>
-
-      {isLocked && postings.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center p-10">
-          <div className="max-w-md rounded-card border border-border-soft bg-panel-2 p-6 text-center">
-            <div className="mx-auto mb-3 h-10 w-10 rounded-full border-2 border-warn border-dashed" />
-            <h3 className="font-medium text-sm">Room not yet in session</h3>
-            <p className="mt-1.5 text-[12.5px] text-muted leading-relaxed">
-              {lockedReason ?? "Waiting for the ledger to be built."}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div ref={feedRef} className="flex-1 overflow-auto p-5">
-          {postings.length === 0 ? (
-            <div className="grid h-full place-items-center text-center">
-              <div>
-                <div className="mx-auto h-12 w-12 rounded-full border-2 border-border-soft border-dashed" />
-                <h3 className="mt-3 font-medium text-sm">No active session</h3>
-                <p className="mt-1 text-[12px] text-muted">
-                  Click <span className="text-text">Open the room</span> to
-                  convene the band.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <ol className="space-y-3">
-              {postings.map((p) => (
-                <Posting
-                  key={`${p.at ?? "na"}:${p.agent}:${p.kind}:${p.content}`}
-                  p={p}
-                />
-              ))}
-            </ol>
-          )}
-        </div>
-      )}
+      <ArgumentRoomHeader
+        status={status}
+        bandRoomId={bandRoomId}
+        isLocked={isLocked}
+        running={running}
+        onRun={onRun}
+      />
+      <ArgumentRoomBody
+        postings={postings}
+        isLocked={isLocked}
+        lockedReason={lockedReason}
+      />
     </section>
   );
 }
 
-function Posting({ p }: { p: RoomPosting }) {
-  const meta = AGENT_META[p.agent];
-  const isGate = p.kind === "gate";
-  const ok = isGate && !/⛔|fail|reject/i.test(p.content);
-  const fail = isGate && /⛔|fail|reject/i.test(p.content);
+function ArgumentRoomHeader({
+  status,
+  bandRoomId,
+  isLocked,
+  running,
+  onRun,
+}: {
+  status: RoomStatus;
+  bandRoomId: string | null;
+  isLocked: boolean;
+  running: boolean;
+  onRun: () => void;
+}) {
   return (
-    <li className="rounded-pill border border-border-soft bg-panel-2 p-3">
-      <header className="mb-1.5 flex items-baseline justify-between gap-3">
-        <div className="flex items-baseline gap-2">
-          <span
-            className={`font-semibold text-[12px] ${meta?.color ?? "text-muted"}`}
-          >
-            {p.agent}
-          </span>
-          {meta?.role ? (
-            <span className="text-[11px] text-muted-2">{meta.role}</span>
-          ) : null}
+    <header className="flex items-center justify-between gap-3 border-border-soft border-b p-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold text-base tracking-tight">
+            Argument Room
+          </h2>
+          <RoomBadge status={status} isLocked={isLocked} running={running} />
         </div>
-        <span
-          className={`text-[10px] uppercase tracking-wider ${
-            ok ? "text-ok" : fail ? "text-bad" : "text-muted-2"
-          }`}
+        <p className="mt-1 text-[12px] text-muted">
+          Agents convene over the locked Evidence Ledger. Gates fire on their
+          own — they are code, not prompts.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <BandId bandRoomId={bandRoomId} />
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={isLocked || running}
+          className="rounded-pill border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
         >
-          {p.kind}
-          {ok ? " ✓" : ""}
-          {fail ? " ⛔" : ""}
-        </span>
-      </header>
-      <p className="whitespace-pre-wrap text-[13px] text-text leading-relaxed">
-        {p.content}
-      </p>
-    </li>
+          {roomActionLabel(status, running)}
+        </button>
+      </div>
+    </header>
   );
+}
+
+function ArgumentRoomBody({
+  postings,
+  isLocked,
+  lockedReason,
+}: {
+  postings: RoomPosting[];
+  isLocked: boolean;
+  lockedReason: string | null;
+}) {
+  if (isLocked && postings.length === 0) {
+    return <LockedRoomNotice reason={lockedReason} />;
+  }
+
+  return (
+    <RoomTranscript
+      postings={postings}
+      emptyAction="Open the room"
+      tone="argument"
+    />
+  );
+}
+
+function LockedRoomNotice({ reason }: { reason: string | null }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-10">
+      <div className="max-w-md rounded-card border border-border-soft bg-panel-2 p-6 text-center">
+        <div className="mx-auto mb-3 h-10 w-10 rounded-full border-2 border-warn border-dashed" />
+        <h3 className="font-medium text-sm">Room not yet in session</h3>
+        <p className="mt-1.5 text-[12.5px] text-muted leading-relaxed">
+          {reason ?? "Waiting for the ledger to be built."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RoomBadge({
+  status,
+  isLocked,
+  running,
+}: {
+  status: RoomStatus;
+  isLocked: boolean;
+  running: boolean;
+}) {
+  const badge = roomBadge(status, isLocked, running);
+
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${ROOM_BADGE_TONE[badge.tone]}`}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
+function roomBadge(status: RoomStatus, isLocked: boolean, running: boolean) {
+  if (isLocked) return { label: "Locked", tone: "locked" as const };
+  if (status === "complete")
+    return { label: "Adjourned", tone: "complete" as const };
+  if (running) return { label: "In session", tone: "running" as const };
+  return { label: "Ready", tone: "ready" as const };
+}
+
+function BandId({ bandRoomId }: { bandRoomId: string | null }) {
+  if (!bandRoomId) return null;
+
+  return (
+    <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 font-mono text-[11px] text-accent">
+      band: {bandRoomId.slice(0, 8)}…
+    </span>
+  );
+}
+
+function roomActionLabel(status: RoomStatus, running: boolean) {
+  if (running) return "In session…";
+  if (status === "complete") return "Reconvene the band";
+  return "Open the room";
 }

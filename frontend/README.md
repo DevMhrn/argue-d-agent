@@ -77,3 +77,12 @@ pnpm build
 ```
 
 Run these inside `frontend/`. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.
+
+For repository health checks, run Fallow from the repo root:
+
+```bash
+pnpx fallow
+pnpx fallow audit --format json --quiet --explain --gate-marker agent
+```
+
+`pnpx fallow` should stay clean before handoff. The audit command is the precommit gate and uses `fallow.toml`, which ignores legacy demo paths while keeping the active frontend in scope.

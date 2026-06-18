@@ -29,6 +29,33 @@ type Action =
   | { type: "error"; message: string }
   | { type: "reset" };
 
+interface RunDecisionEvent
+  extends Omit<
+    DecisionResult,
+    "otherFaultPct" | "recoveryUsd" | "consensusDeltaPp"
+  > {
+  otherFaultPct?: number;
+  otherDriverFaultPct?: number;
+  recoveryUsd?: number;
+  recovery_usd?: number;
+  consensusDeltaPp?: number;
+  consensusDelta?: number;
+}
+
+interface RunResultEvent {
+  decision: RunDecisionEvent;
+  letter?: string;
+  auditHash?: string;
+  bandRoomId?: string | null;
+}
+
+type ActionReducers = {
+  [K in Action["type"]]: (
+    state: RunState,
+    action: Extract<Action, { type: K }>,
+  ) => RunState;
+};
+
 const initial: RunState = {
   status: "idle",
   caseId: null,
@@ -39,31 +66,42 @@ const initial: RunState = {
   error: null,
 };
 
+const ACTION_REDUCERS: ActionReducers = {
+  start: (_state, action) => ({
+    ...initial,
+    status: "connecting",
+    caseId: action.caseId,
+  }),
+  post: (state, action) => ({
+    ...state,
+    status: "streaming",
+    postings: [...state.postings, action.posting],
+  }),
+  letter_chunk: (state, action) => ({
+    ...state,
+    letter: state.letter + action.text,
+  }),
+  result: (state, action) => ({
+    ...state,
+    status: "complete",
+    decision: action.decision,
+    bandRoomId: action.decision.bandRoomId ?? null,
+    letter: action.decision.letter ?? state.letter,
+  }),
+  error: (state, action) => ({
+    ...state,
+    status: "error",
+    error: action.message,
+  }),
+  reset: () => initial,
+};
+
 function reducer(s: RunState, a: Action): RunState {
-  switch (a.type) {
-    case "start":
-      return { ...initial, status: "connecting", caseId: a.caseId };
-    case "post":
-      return {
-        ...s,
-        status: "streaming",
-        postings: [...s.postings, a.posting],
-      };
-    case "letter_chunk":
-      return { ...s, letter: s.letter + a.text };
-    case "result":
-      return {
-        ...s,
-        status: "complete",
-        decision: a.decision,
-        bandRoomId: a.decision.bandRoomId ?? null,
-        letter: a.decision.letter ?? s.letter,
-      };
-    case "error":
-      return { ...s, status: "error", error: a.message };
-    case "reset":
-      return initial;
-  }
+  const applyAction = ACTION_REDUCERS[a.type] as (
+    state: RunState,
+    action: Action,
+  ) => RunState;
+  return applyAction(s, a);
 }
 
 export function useRunStream() {
@@ -78,14 +116,17 @@ export function useRunStream() {
     const src = new EventSource(`/api/run/${encodeURIComponent(caseId)}`);
     sourceRef.current = src;
 
-    src.addEventListener("post", (e: MessageEvent) => {
+    const handlePosting = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as RoomPosting;
         dispatch({ type: "post", posting: data });
       } catch {
         // ignore malformed
       }
-    });
+    };
+
+    src.addEventListener("post", handlePosting);
+    src.addEventListener("posting", handlePosting);
 
     src.addEventListener("letter", (e: MessageEvent) => {
       try {
@@ -98,8 +139,8 @@ export function useRunStream() {
 
     src.addEventListener("result", (e: MessageEvent) => {
       try {
-        const decision = JSON.parse(e.data) as DecisionResult;
-        dispatch({ type: "result", decision });
+        const payload = JSON.parse(e.data) as RunResultEvent;
+        dispatch({ type: "result", decision: normalizeRunResult(payload) });
       } catch (err) {
         dispatch({
           type: "error",
@@ -137,4 +178,31 @@ export function useRunStream() {
   }, []);
 
   return { state, start, stop };
+}
+
+function normalizeRunResult(payload: RunResultEvent): DecisionResult {
+  const decision = payload.decision;
+
+  return {
+    ...decision,
+    otherFaultPct: firstDefined(
+      [decision.otherFaultPct, decision.otherDriverFaultPct],
+      0,
+    ),
+    recoveryUsd: firstDefined([decision.recoveryUsd, decision.recovery_usd], 0),
+    consensusDeltaPp: firstDefined([
+      decision.consensusDeltaPp,
+      decision.consensusDelta,
+    ]),
+    letter: firstDefined([decision.letter, payload.letter]),
+    auditHash: firstDefined([decision.auditHash, payload.auditHash]),
+    bandRoomId: firstDefined([decision.bandRoomId, payload.bandRoomId], null),
+  };
+}
+
+function firstDefined<T>(values: Array<T | undefined>, fallback: T): T;
+function firstDefined<T>(values: Array<T | undefined>): T | undefined;
+function firstDefined<T>(values: Array<T | undefined>, fallback?: T) {
+  const value = values.find((item): item is T => item !== undefined);
+  return value === undefined ? fallback : value;
 }

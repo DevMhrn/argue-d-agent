@@ -1,0 +1,19 @@
+# Scope Fallow to active application code. The root TypeScript demo and
+# archived frontend copy stay out of the local gate unless intentionally moved
+# back into production paths.
+ignorePatterns = [
+  "src/**",
+  "server/**",
+  "frontend/_legacy/**",
+]
+
+# These dependencies are only used by the ignored legacy demo stack.
+ignoreDependencies = [
+  "dotenv",
+  "express",
+  "openai",
+  "zod",
+]
+
+[audit]
+gate = "new-only"

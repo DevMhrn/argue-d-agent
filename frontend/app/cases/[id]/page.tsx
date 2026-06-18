@@ -46,20 +46,9 @@ export default function CaseDetailPage({ params }: PageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const resp = await getCase(id);
-        if (!cancelled) setData(resp);
-      } catch (err) {
-        if (!cancelled) {
-          if (err instanceof ApiError && err.status === 404) {
-            setLoadError(`Case ${id} not found.`);
-          } else {
-            setLoadError(err instanceof Error ? err.message : String(err));
-          }
-        }
-      }
-    })();
+    void loadCaseDetail(id).then((result) =>
+      applyCaseLoadResult(result, () => cancelled, setData, setLoadError),
+    );
     return () => {
       cancelled = true;
     };
@@ -99,6 +88,43 @@ export default function CaseDetailPage({ params }: PageProps) {
   }
 
   return <DbCaseView data={data} onRun={handleRun} run={state} caseId={id} />;
+}
+
+interface CaseLoadResult {
+  data: CaseDetailResponse | null;
+  error: string | null;
+}
+
+async function loadCaseDetail(id: string): Promise<CaseLoadResult> {
+  try {
+    return { data: await getCase(id), error: null };
+  } catch (err) {
+    return { data: null, error: caseLoadError(id, err) };
+  }
+}
+
+function caseLoadError(id: string, err: unknown): string {
+  if (err instanceof ApiError && err.status === 404) {
+    return `Case ${id} not found.`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+type CaseDataSetter = (data: CaseDetailResponse | null) => void;
+type LoadErrorSetter = (error: string | null) => void;
+
+function applyCaseLoadResult(
+  result: CaseLoadResult,
+  isCancelled: () => boolean,
+  setData: CaseDataSetter,
+  setLoadError: LoadErrorSetter,
+) {
+  if (isCancelled()) return;
+  if (result.error) {
+    setLoadError(result.error);
+    return;
+  }
+  setData(result.data);
 }
 
 /* ---------------------------------------------------------------------------
@@ -152,97 +178,174 @@ function DbCaseView({
   caseId: string;
 }) {
   const c = data.case as DbCase;
-  const ingestionComplete = c.ingestion_complete;
-  const ledgerComplete = c.ledger_complete;
-
-  // What's stopping the Argument Room from opening?
-  const lockedReason = !ingestionComplete
-    ? "Documents are still extracting. The Argument Room opens once the ledger lane builds the graph."
-    : !ledgerComplete
-      ? "Ingestion complete — waiting for the ledger lane to build the typed graph of facts + edges. (That's Gowtham's lane; the room opens automatically when ledger_complete flips true.)"
-      : null;
-  const canRun = Boolean(ledgerComplete);
+  const room = dbRoomState(c);
 
   return (
     <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
-      {/* Header: who, what, where, and a stage stepper */}
-      <header className="rounded-card border border-border bg-panel p-5 shadow-card">
-        <div className="flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <h1 className="truncate font-semibold text-xl tracking-tight">
-              {c.title}
-            </h1>
-            <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 text-[12.5px] text-muted">
-              <div>
-                <span className="text-muted-2">Case ID:</span>{" "}
-                <span className="font-mono">{c.case_id}</span>
-              </div>
-              <div>
-                <span className="text-muted-2">Jurisdiction:</span>{" "}
-                {c.jurisdiction}
-              </div>
-              {c.insured_name ? (
-                <div>
-                  <span className="text-muted-2">Insured:</span>{" "}
-                  {c.insured_name}
-                </div>
-              ) : null}
-              {c.other_party_name ? (
-                <div>
-                  <span className="text-muted-2">Other party:</span>{" "}
-                  {c.other_party_name}
-                </div>
-              ) : null}
-              {c.damages_usd ? (
-                <div>
-                  <span className="text-muted-2">Damages:</span>{" "}
-                  <span className="font-mono">
-                    ${Number(c.damages_usd).toLocaleString("en-US")}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        <div className="mt-4">
-          <StageStepper caseRow={c} />
-        </div>
-      </header>
+      <DbCaseHeader caseRow={c} />
+      <DbGateRail postings={run.postings} canRun={room.canRun} />
+      <DbCaseBody data={data} run={run} room={room} onRun={onRun} />
+      <DbDecision caseId={caseId} run={run} />
+    </div>
+  );
+}
 
-      {/* Gate rail (only meaningful once the room is in session, but harmless before) */}
-      {run.postings.length > 0 || canRun ? (
-        <GateRail postings={run.postings} />
-      ) : null}
+interface DbRoomState {
+  ingestionComplete: boolean;
+  canRun: boolean;
+  lockedReason: string | null;
+}
 
-      {/* Two-column body: left = evidence (ingestion + ledger), right = argument room */}
-      <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-4">
-          <DocumentsPanel caseUuid={c.id} initialDocuments={data.documents} />
-          <LedgerGraphPanel
-            hasLedger={data.has_ledger}
-            nodes={data.nodes}
-            edges={data.edges}
-            ingestionComplete={ingestionComplete}
-          />
+function dbRoomState(caseRow: DbCase): DbRoomState {
+  return {
+    ingestionComplete: caseRow.ingestion_complete,
+    canRun: caseRow.ledger_complete,
+    lockedReason: dbRoomLockedReason(caseRow),
+  };
+}
+
+function dbRoomLockedReason(caseRow: DbCase): string | null {
+  if (!caseRow.ingestion_complete) {
+    return "Documents are still extracting. The Argument Room opens once the ledger lane builds the graph.";
+  }
+  if (!caseRow.ledger_complete) {
+    return "Ingestion complete — waiting for the ledger lane to build the typed graph of facts + edges. (That's Gowtham's lane; the room opens automatically when ledger_complete flips true.)";
+  }
+  return null;
+}
+
+function DbCaseHeader({ caseRow }: { caseRow: DbCase }) {
+  return (
+    <header className="rounded-card border border-border bg-panel p-5 shadow-card">
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0">
+          <h1 className="truncate font-semibold text-xl tracking-tight">
+            {caseRow.title}
+          </h1>
+          <DbCaseMeta caseRow={caseRow} />
         </div>
-        <ArgumentRoom
-          status={run.status}
-          postings={run.postings}
-          bandRoomId={run.bandRoomId}
-          canRun={canRun}
-          lockedReason={lockedReason}
-          onRun={onRun}
+      </div>
+      <div className="mt-4">
+        <StageStepper caseRow={caseRow} />
+      </div>
+    </header>
+  );
+}
+
+function DbCaseMeta({ caseRow }: { caseRow: DbCase }) {
+  return (
+    <div className="mt-1 grid grid-cols-2 gap-x-6 gap-y-0.5 text-[12.5px] text-muted">
+      <CaseFact label="Case ID" value={caseRow.case_id} mono />
+      <CaseFact label="Jurisdiction" value={caseRow.jurisdiction} />
+      <OptionalCaseFact label="Insured" value={caseRow.insured_name} />
+      <OptionalCaseFact label="Other party" value={caseRow.other_party_name} />
+      <OptionalCaseFact
+        label="Damages"
+        value={formatDamages(caseRow.damages_usd)}
+        mono
+      />
+    </div>
+  );
+}
+
+function CaseFact({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <span className="text-muted-2">{label}:</span>{" "}
+      <span className={mono ? "font-mono" : ""}>{value}</span>
+    </div>
+  );
+}
+
+function OptionalCaseFact({
+  value,
+  ...props
+}: Omit<Parameters<typeof CaseFact>[0], "value"> & {
+  value: string | null;
+}) {
+  return value ? <CaseFact {...props} value={value} /> : null;
+}
+
+function formatDamages(damages: number | null): string | null {
+  return damages ? `$${damages.toLocaleString("en-US")}` : null;
+}
+
+function DbGateRail({
+  postings,
+  canRun,
+}: {
+  postings: ReturnType<typeof useRunStream>["state"]["postings"];
+  canRun: boolean;
+}) {
+  if (!shouldShowGateRail(postings, canRun)) return null;
+  return <GateRail postings={postings} />;
+}
+
+function shouldShowGateRail(
+  postings: ReturnType<typeof useRunStream>["state"]["postings"],
+  canRun: boolean,
+) {
+  return postings.length > 0 || canRun;
+}
+
+function DbCaseBody({
+  data,
+  run,
+  room,
+  onRun,
+}: {
+  data: DbCaseResponse;
+  run: ReturnType<typeof useRunStream>["state"];
+  room: DbRoomState;
+  onRun: () => void;
+}) {
+  const c = data.case as DbCase;
+
+  return (
+    <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-4">
+        <DocumentsPanel caseUuid={c.id} initialDocuments={data.documents} />
+        <LedgerGraphPanel
+          hasLedger={data.has_ledger}
+          nodes={data.nodes}
+          edges={data.edges}
+          ingestionComplete={room.ingestionComplete}
         />
       </div>
-
-      {/* Decision panel — appears once the room has adjourned */}
-      {run.decision ? (
-        <DecisionPanel
-          caseId={caseId}
-          decision={run.decision}
-          letter={run.letter}
-        />
-      ) : null}
+      <ArgumentRoom
+        status={run.status}
+        postings={run.postings}
+        bandRoomId={run.bandRoomId}
+        canRun={room.canRun}
+        lockedReason={room.lockedReason}
+        onRun={onRun}
+      />
     </div>
+  );
+}
+
+function DbDecision({
+  caseId,
+  run,
+}: {
+  caseId: string;
+  run: ReturnType<typeof useRunStream>["state"];
+}) {
+  if (!run.decision) return null;
+
+  return (
+    <DecisionPanel
+      caseId={caseId}
+      decision={run.decision}
+      letter={run.letter}
+    />
   );
 }

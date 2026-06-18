@@ -53,16 +53,19 @@ function apiUrl(path: string): string {
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = (await res.json()) as { detail?: string };
-      if (body?.detail) detail = body.detail;
-    } catch {
-      // body wasn't JSON
-    }
+    const detail = await errorDetail(res);
     throw new ApiError(`${res.status} ${detail}`, res.status);
   }
   return (await res.json()) as T;
+}
+
+async function errorDetail(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: string };
+    return body.detail ?? res.statusText;
+  } catch {
+    return res.statusText;
+  }
 }
 
 // ---- ingestion lane --------------------------------------------------------
