@@ -46,7 +46,7 @@ The frontend shows two case sources through the same API surface:
 
 The ledger handoff is wired: when ingestion flips `ingestion_complete=true`, the winning worker enqueues the arq job `run_ledger_build`, which reads the case's documents/pages/statutes, builds the typed graph, writes `nodes`/`edges` via asyncpg, and flips `ledger_complete=true` (see `backend/ledger/service.py`, `db_repository.py`, `jobs.py`). That opens the Argument Room in the UI.
 
-`GET /api/run/{case_id}` still runs the debate against demo cases only. Real Supabase cases now reach `ledger_complete=true` with a persisted graph, but running the debate *over that persisted graph* (read `nodes`/`edges` → `graph_to_evidence_ledger` → `run_lumen`) is the next integration step.
+`GET /api/run/{case_id}` runs the debate for **both** sources. Demo ids (`clean`/`loser`) build their ledger from the bundled claim. Real UUIDs run the debate **over the persisted graph**: `backend/ledger/service.py::load_run_inputs` reconstructs the claim from `documents`/`document_pages`, loads statutes, and projects the stored Fact `nodes` into an `EvidenceLedger`; `run_lumen(..., ledger=…)` then skips the rebuild and argues over those facts. The server requires `ledger_complete=true` (returns 409 otherwise). Persisting the run's decision/transcript back to `runs`/`decisions`/`transcript` (and flipping `finalized`) remains the orchestration lane's next step — results currently stream over SSE.
 
 ## Production Flow
 
