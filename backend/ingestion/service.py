@@ -293,8 +293,12 @@ class IngestService:
             if await self._repo.maybe_finalize_ingestion(doc.case_id):
                 await self._queue.enqueue_build_ledger(doc.case_id)
             else:
+                # The flip was a no-op — the case was ALREADY ingestion_complete
+                # (a doc added/re-extracted later, or finalize was called out of band).
+                # (Re)build the ledger anyway so it's never skipped and a stale or
+                # missing graph gets refreshed. Idempotent: it replaces the graph.
                 case = await self._repo.get_case(doc.case_id)
-                if case is not None and case.ledger_complete:
+                if case is not None and case.ingestion_complete:
                     await self._queue.enqueue_build_ledger(doc.case_id)
             return updated
 
