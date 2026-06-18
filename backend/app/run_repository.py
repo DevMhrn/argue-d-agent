@@ -179,11 +179,29 @@ class RunRepository:
             return self._row_to_run(row) if row else None
 
     async def list_runs_for_case(
-        self, case_id: UUID, *, limit: int = 20
+        self, case_id: UUID, *, limit: int = 20, stale_after_seconds: int = 180
     ) -> list[RunRow]:
-        """Most recent runs first. Used by the case-detail page to show history."""
+        """Most recent runs first. Sweeps stale 'running' runs (started >
+        stale_after_seconds ago) to 'failed' before reading — covers the case
+        where the FastAPI process was killed mid-debate or the client cancelled
+        the SSE stream so the finally-block update never landed."""
         pool = await get_pool()
         async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                update runs
+                   set status = 'failed',
+                       ended_at = now(),
+                       error_message = coalesce(error_message,
+                                                'stale (no heartbeat for > '
+                                                || $2::text || 's)')
+                 where case_id = $1
+                   and status = 'running'
+                   and started_at < now() - make_interval(secs => $2)
+                """,
+                case_id,
+                stale_after_seconds,
+            )
             rows = await conn.fetch(
                 """
                 select * from runs

@@ -351,6 +351,24 @@ async def api_run(case_id: str):
                 "runId": str(run_id) if run_id else None,
             }))
             await queue.put(("done", {}))
+        except asyncio.CancelledError:
+            # Client closed the SSE — StreamingResponse cancels the task.
+            # CancelledError inherits BaseException (Python 3.8+), so without
+            # this branch the run row stays at 'running' forever. We finalize
+            # via asyncio.shield so the bookkeeping update completes even
+            # while the task itself is being torn down.
+            if run_repo is not None and run_id is not None:
+                try:
+                    await asyncio.shield(
+                        run_repo.complete_run(
+                            run_id, status="failed",
+                            started_at=started_at,
+                            error_message="cancelled (client disconnected)",
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
         except Exception as e:  # noqa: BLE001
             if run_repo is not None and run_id is not None:
                 try:
