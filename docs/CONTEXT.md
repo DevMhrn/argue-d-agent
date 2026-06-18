@@ -10,7 +10,7 @@
 
 ## 0. TL;DR (then read the rest — the reasoning is the point)
 
-**Lumen** is an AI **insurance-subrogation recovery** system for the **Band of Agents Hackathon** (lablab.ai). A *band* of specialist agents — spread across **three model families (Claude, Gemini, GPT)** — investigates a claim, **argues both sides**, is **gated on cited evidence** by a **six-gate verification harness**, and produces a **recovery decision** (a dollar amount + a ready-to-send demand letter) — or correctly **declines to pursue** a weak case. The agents coordinate through a **real Band room**. We are aiming for **1st place**.
+**Lumen** is an AI **insurance-subrogation recovery** system for the **Band of Agents Hackathon** (lablab.ai). A *band* of specialist agents — spread across **two model families (Claude + GPT)** — investigates a claim, **argues both sides**, is **gated on cited evidence** by a **six-gate verification harness**, and produces a **recovery decision** (a dollar amount + a ready-to-send demand letter) — or correctly **declines to pursue** a weak case. The agents coordinate through a **real Band room**. We are aiming for **1st place**.
 
 The single sentence that captures the moat: *"It's not adjudication (deciding whether to pay a claim) — it's subrogation **recovery** (clawing money back from the at-fault party after paying), with a verification harness rigorous enough that an insurer could trust it, and the honesty to say when a case isn't worth chasing."*
 
@@ -83,23 +83,24 @@ When someone runs a red light and hits your car, your insurer pays you right awa
 
 ---
 
-## 6. The agent team (8 agents, three model families)
+## 6. The agent team (8 agents, two model families: Claude + GPT)
 
-Provider assignment is **deliberate cross-family** so the adversarial parts are genuinely independent — not one model arguing with itself.
+Provider assignment is **deliberate cross-family** so the adversarial parts are genuinely independent — not one model arguing with itself. (We ran across three families until 2026-06-18, when we lost Gemini access and repointed the three Gemini slots onto Claude/GPT — see the decision log. Gemini stays a *supported* provider; reassign an agent to it once a key is available.)
 
 | # | Agent | Family / model (default) | Job |
 |---|-------|--------------------------|-----|
 | 1 | Intake Parser | OpenAI · `gpt-4o-mini` | Extract parties/date/location/damages from the FNOL |
-| 2 | Evidence Aggregator | Google · `gemini-2.5-flash` | Build the grounded Evidence Ledger |
+| 2 | Evidence Aggregator | OpenAI · `gpt-4o-mini` | Build the grounded Evidence Ledger (JSON extraction → `json_object` mode) |
 | 3 | Liability Advocate | Anthropic · `claude-opus-4-8` | Argue our insured is owed recovery (zealous counsel) |
 | 4 | Opposing-Carrier Red Team | OpenAI · `gpt-4o` | Attack our case — *a red team, never a negotiator* |
 | 5 | Adjudicator A | Anthropic · `claude-opus-4-8` | Neutrally set fault % + recovery, showing its math |
-| 6 | Adjudicator B | Google · `gemini-2.5-pro` | Independent re-decision on a **different family** |
-| 7 | Source-Alignment Verifier | Google · `gemini-2.5-flash` | Audit every cited claim *actually follows* from its fact |
+| 6 | Adjudicator B | OpenAI · `gpt-4o` | Independent re-decision on a **different family** (GPT vs A's Claude) |
+| 7 | Source-Alignment Verifier | Anthropic · `claude-sonnet-4-6` | Audit every cited claim *actually follows* from its fact |
 | 8 | Demand Letter Drafter | Anthropic · `claude-sonnet-4-6` | Compose the formal demand letter |
 
-- **Advocate (Claude) vs. Opposing (GPT)** = cross-family debate. **Adjudicator A (Claude) vs. B (Gemini)** = cross-family consensus check. This is what makes "diverse models resist collusion" *real, not cosmetic.*
-- Model IDs are **env-overridable** (`MODEL_*`). Claude IDs are confirmed current (per the claude-api reference: `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`). **Gemini/OpenAI IDs are sensible defaults — confirm exact ids in those consoles before live runs.**
+- **Advocate (Claude) vs. Opposing (GPT)** = cross-family debate. **Adjudicator A (Claude) vs. B (GPT)** = cross-family consensus check. This is what makes "diverse models resist collusion" *real, not cosmetic* — now across **two** families. A clean 4 Claude / 4 GPT split.
+- Model IDs are **env-overridable** (`MODEL_*`). Claude IDs are confirmed current (per the claude-api reference: `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`). **OpenAI IDs are sensible defaults — confirm `gpt-4o` / `gpt-4o-mini` in the OpenAI console before live runs.**
+- **Live mode needs only `ANTHROPIC_API_KEY` + `OPENAI_API_KEY`** now (no Gemini). The ledger build (Evidence Aggregator) routes through whatever provider `AGENTS["evidence"]` is set to — currently OpenAI.
 
 ---
 
@@ -134,7 +135,7 @@ The user's explicit worry: "the agents don't hallucinate and don't end up convin
 - **Separation of powers:** the agents who argue do **not** set the number. A neutral **Adjudicator** does. (If the advocate could also decide, it would soften.)
 - **Structured rounds, no consensus round:** Advocate states → Opponent attacks → Advocate rebuts/concedes (concession only *with a citation*). Stop. No "find common ground."
 - **Draft independently first**, then exchange (prevents anchoring).
-- **Different model family per side** (two families resist sycophantic convergence). *This is now literally true across Claude/Gemini/GPT.*
+- **Different model family per side** (two families resist sycophantic convergence). *This is literally true across Claude/GPT — the Advocate/Opposing and Adjudicator A/B pairs are always cross-family.*
 - **Fault % is computed, not vibed** — from a fault table, math-gated; flags suspicious ~50/50 splits.
 
 ---
@@ -271,7 +272,7 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 3. **Evidence** → the **Evidence Ledger**. When `LUMEN_USE_LEDGER=1` (default), this comes from the **ledger lane** (`build_ledger` → typed graph → `graph_to_evidence_ledger` projection); else the inline evidence agent. The room posts "Evidence-ledger graph built — N nodes, M edges → K facts".
 4. **Fact Gate** — verbatim-quote anchoring check.
 5. **Debate (structured, no consensus round):** Advocate opens (blind) → Opposing builds its own theory (blind) → Opposing attacks the Advocate's points → Advocate rebuts/concedes (concession needs a citation). Each step is **Citation-Gated** with one retry.
-6. **Dual Adjudicator** — A (Claude) and B (Gemini) decide **in parallel**, blind to each other; each **Math-Gated**.
+6. **Dual Adjudicator** — A (Claude) and B (GPT) decide **in parallel**, blind to each other; each **Math-Gated**.
 7. **Consensus Gate** — agreement (≤10pp) → average; disagreement → escalate; single (one passed math) → use it at 0.8× confidence; none → throw/hard-escalate.
 8. **Source-Alignment Verifier** — audits every cited claim; `contradicted` count feeds escalation.
 9. **Viability / decline** — `pursue = recovery ≥ PURSUE_MIN_USD and fault% ≥ PURSUE_MIN_FAULT_PCT`; sets `outcome` ∈ `pursue`/`escalate`/`decline`.
@@ -311,6 +312,7 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 | Native Anthropic SDK for the provider client | ❌ NO | Provider-neutral multi-model client; one OpenAI-compat codepath. |
 | **No Claude attribution** in commits; machine identity | ✅ YES | Explicit user preference. |
 | Drop AI/ML API + Featherless → Claude/Gemini/OpenAI | ✅ YES (forced) | APIs unavailable; turned into the cross-family-independence win. |
+| Drop Gemini too (no key) → repoint its 3 agents to Claude/GPT | ✅ YES (forced, 2026-06-18) | No Gemini key available. Evidence + Adjudicator B → OpenAI; Verifier → Claude. Adversarial pairs stay cross-family; pitch is now "two independent families." Gemini still a supported provider — reassign once a key exists. |
 | 3-lane architecture; DB schema as contract | ✅ YES | Clean ownership (Aman/Gowtham/Sudharsan); parallel work. |
 
 ---
@@ -383,7 +385,7 @@ python -m backend.ledger.build_demo clean         # or: loser
 pnpm run demo            # CLI
 pnpm run serve           # web
 
-# Live (backup path): put ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY in .env, then
+# Live (backup path): put ANTHROPIC_API_KEY + OPENAI_API_KEY in .env (Gemini not needed), then
 LUMEN_MOCK=0 PORT=8000 python -m backend.app.run_server
 
 # Real Band room: fill band_config.yaml (8 agents), then

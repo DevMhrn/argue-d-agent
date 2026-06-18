@@ -83,7 +83,7 @@ The repo runner expects `backend/.env` and starts the FastAPI server on port `80
 ./run.sh dev
 ```
 
-Live model mode requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `OPENAI_API_KEY` in `.env` or `backend/.env`. Real ingestion additionally requires `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
+Live model mode requires `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` in `.env` or `backend/.env` (the default agent assignment uses only Claude + GPT; `GEMINI_API_KEY` is optional and only needed if an agent is reassigned to the still-supported `gemini` provider). Real ingestion additionally requires `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
 
 Use a Supabase pooler `DATABASE_URL` for local ingestion if `db.<project-ref>.supabase.co` only resolves to IPv6 on your network. The FastAPI server still starts without a DB connection, but `POST /api/ingest/case` will fail until asyncpg can reach Postgres.
 
