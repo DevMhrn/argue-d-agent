@@ -29,17 +29,35 @@ function badgeFor(stage: LocalFileStage): { label: string; tone: string } {
     case "queued":
       return { label: "Queued", tone: "border-border bg-panel-2 text-muted" };
     case "hashing":
-      return { label: "Hashing", tone: "border-accent/40 bg-accent/10 text-accent" };
+      return {
+        label: "Hashing",
+        tone: "border-accent/40 bg-accent/10 text-accent",
+      };
     case "signing":
-      return { label: "Signing", tone: "border-accent/40 bg-accent/10 text-accent" };
+      return {
+        label: "Signing",
+        tone: "border-accent/40 bg-accent/10 text-accent",
+      };
     case "uploading":
-      return { label: "Uploading", tone: "border-accent/40 bg-accent/10 text-accent" };
+      return {
+        label: "Uploading",
+        tone: "border-accent/40 bg-accent/10 text-accent",
+      };
     case "committing":
-      return { label: "Committing", tone: "border-accent/40 bg-accent/10 text-accent" };
+      return {
+        label: "Committing",
+        tone: "border-accent/40 bg-accent/10 text-accent",
+      };
     case "uploaded":
-      return { label: "Uploaded", tone: "border-accent/40 bg-accent/10 text-accent" };
+      return {
+        label: "Uploaded",
+        tone: "border-accent/40 bg-accent/10 text-accent",
+      };
     case "extracting":
-      return { label: "Extracting", tone: "border-warn/40 bg-warn/10 text-warn" };
+      return {
+        label: "Extracting",
+        tone: "border-warn/40 bg-warn/10 text-warn",
+      };
     case "extracted":
       return { label: "Extracted ✓", tone: "border-ok/40 bg-ok/10 text-ok" };
     case "failed":
@@ -56,16 +74,23 @@ export function mergeServerStatus(
   if (server === "extracted") return "extracted";
   if (server === "failed") return "failed";
   if (server === "extracting") return "extracting";
-  if (server === "uploaded") return local === "extracting" ? "extracting" : "uploaded";
+  if (server === "uploaded")
+    return local === "extracting" ? "extracting" : "uploaded";
   return local;
 }
 
-export function FileRow({ row, onRemove }: { row: LocalFile; onRemove?: () => void }) {
+export function FileRow({
+  row,
+  onRemove,
+}: {
+  row: LocalFile;
+  onRemove?: () => void;
+}) {
   const badge = badgeFor(row.stage);
   const sizeMb = (row.file.size / (1024 * 1024)).toFixed(2);
   const showBar = row.stage === "uploading" || row.stage === "hashing";
   return (
-    <li className="rounded-[9px] border border-border bg-panel p-3">
+    <li className="rounded-pill border border-border bg-panel p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-medium">{row.file.name}</div>
@@ -76,11 +101,13 @@ export function FileRow({ row, onRemove }: { row: LocalFile; onRemove?: () => vo
         </div>
         <div className="flex items-center gap-2">
           <span
-            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${badge.tone}`}
+            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${badge.tone}`}
           >
             {badge.label}
           </span>
-          {onRemove && row.stage !== "extracting" && row.stage !== "uploading" ? (
+          {onRemove &&
+          row.stage !== "extracting" &&
+          row.stage !== "uploading" ? (
             <button
               type="button"
               onClick={onRemove}
@@ -101,7 +128,7 @@ export function FileRow({ row, onRemove }: { row: LocalFile; onRemove?: () => vo
         </div>
       ) : null}
       {row.error ? (
-        <div className="mt-2 rounded-[6px] border border-bad/40 bg-bad/5 px-2 py-1 text-[12px] text-bad">
+        <div className="mt-2 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[12px] text-bad">
           {row.error}
         </div>
       ) : null}

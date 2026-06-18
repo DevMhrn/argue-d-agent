@@ -17,7 +17,13 @@ interface Props {
  * as a drop target so users can drag files straight onto it (in addition to
  * the wider drop zone provided by the parent page).
  */
-export function ChatComposer({ placeholder, disabled, onSend, onAttach, hint }: Props) {
+export function ChatComposer({
+  placeholder,
+  disabled,
+  onSend,
+  onAttach,
+  hint,
+}: Props) {
   const [text, setText] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,7 +47,7 @@ export function ChatComposer({ placeholder, disabled, onSend, onAttach, hint }: 
 
   function autoResize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 220) + "px";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }
 
   return (
@@ -68,7 +74,7 @@ export function ChatComposer({ placeholder, disabled, onSend, onAttach, hint }: 
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           aria-label="Attach files"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] border border-border-soft bg-panel-2 text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-pill border border-border-soft bg-panel-2 text-muted hover:border-accent hover:text-accent disabled:opacity-50"
         >
           {/* paperclip glyph */}
           <span className="text-base leading-none">📎</span>
@@ -102,7 +108,7 @@ export function ChatComposer({ placeholder, disabled, onSend, onAttach, hint }: 
           type="button"
           onClick={send}
           disabled={disabled || !text.trim()}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] border border-accent/40 bg-accent/15 px-3 text-sm text-accent hover:bg-accent/25 disabled:opacity-50"
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-pill border border-accent/40 bg-accent/15 px-3 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
         >
           Send <span className="text-base leading-none">↵</span>
         </button>

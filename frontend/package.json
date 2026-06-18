@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "biome check --write --unsafe ."
+    "lint": "tailwind-suggest-canonical-classes \"app/**/*.{js,jsx,ts,tsx}\" \"components/**/*.{js,jsx,ts,tsx}\" \"lib/**/*.{js,jsx,ts,tsx}\" --css ./app/globals.css && biome check --write --unsafe ."
   },
   "dependencies": {
     "next": "16.2.9",
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
+    "@laststance/tailwind-suggest-canonical-classes": "^0.1.1",
     "@tailwindcss/postcss": "^4.3.1",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",

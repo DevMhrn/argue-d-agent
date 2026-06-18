@@ -22,7 +22,7 @@ export function StageStepper({ caseRow }: { caseRow: DbCase }) {
   };
 
   return (
-    <ol className="flex w-full items-center gap-3 overflow-x-auto rounded-[14px] border border-border bg-panel/80 px-4 py-3">
+    <ol className="flex w-full items-center gap-3 overflow-x-auto rounded-card border border-border bg-panel/80 px-4 py-3">
       {STEPS.map((s, i) => {
         const done = reached[s.key];
         const active =
@@ -30,9 +30,9 @@ export function StageStepper({ caseRow }: { caseRow: DbCase }) {
           // first not-yet-done step is the "active" / in-progress step
           STEPS.slice(0, i).every((p) => reached[p.key]);
         return (
-          <li key={s.key} className="flex flex-1 min-w-[140px] items-center gap-2">
+          <li key={s.key} className="flex min-w-35 flex-1 items-center gap-2">
             <span
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[12px] font-medium ${
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-medium text-[12px] ${
                 done
                   ? "border-ok/60 bg-ok/15 text-ok"
                   : active

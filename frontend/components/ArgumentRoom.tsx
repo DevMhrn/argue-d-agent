@@ -75,7 +75,7 @@ export function ArgumentRoom({
   const running = status === "streaming" || status === "connecting";
 
   return (
-    <section className="flex h-full flex-col overflow-hidden rounded-[14px] border border-border bg-panel shadow-card">
+    <section className="flex h-full flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <header className="flex items-center justify-between gap-3 border-border-soft border-b p-5">
         <div>
           <div className="flex items-center gap-2">
@@ -115,7 +115,7 @@ export function ArgumentRoom({
             type="button"
             onClick={onRun}
             disabled={isLocked || running}
-            className="rounded-[9px] border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
+            className="rounded-pill border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
           >
             {running
               ? "In session…"
@@ -128,7 +128,7 @@ export function ArgumentRoom({
 
       {isLocked && postings.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-10">
-          <div className="max-w-md rounded-[14px] border border-border-soft bg-panel-2 p-6 text-center">
+          <div className="max-w-md rounded-card border border-border-soft bg-panel-2 p-6 text-center">
             <div className="mx-auto mb-3 h-10 w-10 rounded-full border-2 border-warn border-dashed" />
             <h3 className="font-medium text-sm">Room not yet in session</h3>
             <p className="mt-1.5 text-[12.5px] text-muted leading-relaxed">
@@ -171,7 +171,7 @@ function Posting({ p }: { p: RoomPosting }) {
   const ok = isGate && !/⛔|fail|reject/i.test(p.content);
   const fail = isGate && /⛔|fail|reject/i.test(p.content);
   return (
-    <li className="rounded-[9px] border border-border-soft bg-panel-2 p-3">
+    <li className="rounded-pill border border-border-soft bg-panel-2 p-3">
       <header className="mb-1.5 flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-2">
           <span

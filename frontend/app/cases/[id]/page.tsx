@@ -72,7 +72,7 @@ export default function CaseDetailPage({ params }: PageProps) {
   if (loadError) {
     return (
       <div className="mx-auto w-full max-w-3xl px-6 py-10">
-        <div className="rounded-[14px] border border-bad/40 bg-bad/5 p-6 text-sm">
+        <div className="rounded-card border border-bad/40 bg-bad/5 p-6 text-sm">
           <p className="font-medium text-bad">{loadError}</p>
           <p className="mt-2 text-muted">
             Open{" "}
@@ -115,7 +115,7 @@ function DemoCaseView({
   run: ReturnType<typeof useRunStream>["state"];
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
       <GateRail postings={run.postings} />
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)_360px]">
@@ -164,9 +164,9 @@ function DbCaseView({
   const canRun = Boolean(ledgerComplete);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4 px-6 py-6">
+    <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
       {/* Header: who, what, where, and a stage stepper */}
-      <header className="rounded-[14px] border border-border bg-panel p-5 shadow-card">
+      <header className="rounded-card border border-border bg-panel p-5 shadow-card">
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <h1 className="truncate font-semibold text-xl tracking-tight">

@@ -1,6 +1,6 @@
 "use client";
 
-import { FileRow, LocalFile } from "@/components/FileRow";
+import { FileRow, type LocalFile } from "@/components/FileRow";
 
 export type ChatRole = "user" | "lumen" | "system";
 
@@ -38,8 +38,7 @@ const ROLE_STYLES: Record<ChatRole, string> = {
 
 const AVATAR_STYLES: Record<ChatRole, string> = {
   user: "bg-accent text-bg",
-  lumen:
-    "bg-gradient-to-br from-accent via-accent-2 to-agent-verifier text-bg",
+  lumen: "bg-gradient-to-br from-accent via-accent-2 to-agent-verifier text-bg",
   system: "bg-panel-3 text-muted",
 };
 
@@ -51,15 +50,15 @@ export function ChatMessageBubble({ msg }: { msg: ChatMessage }) {
     <article className={`flex w-full ${align}`}>
       <div className={`flex max-w-[88%] gap-3 ${bubbleAlign}`}>
         <div
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${AVATAR_STYLES[msg.role]}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-semibold text-[11px] ${AVATAR_STYLES[msg.role]}`}
         >
           {msg.role === "lumen" ? "L" : msg.role === "user" ? "•" : "i"}
         </div>
         <div
-          className={`min-w-0 flex-1 rounded-[14px] border px-4 py-3 shadow-card ${ROLE_STYLES[msg.role]}`}
+          className={`min-w-0 flex-1 rounded-card border px-4 py-3 shadow-card ${ROLE_STYLES[msg.role]}`}
         >
           <header className="mb-1 flex items-baseline justify-between gap-3">
-            <span className="text-[11px] uppercase tracking-wider text-muted-2">
+            <span className="text-[11px] text-muted-2 uppercase tracking-wider">
               {ROLE_LABEL[msg.role]}
             </span>
           </header>
@@ -83,7 +82,7 @@ export function ChatMessageBubble({ msg }: { msg: ChatMessage }) {
                 type="button"
                 onClick={msg.action.onClick}
                 disabled={msg.action.disabled}
-                className={`rounded-[9px] border px-4 py-2 text-sm transition-colors ${
+                className={`rounded-pill border px-4 py-2 text-sm transition-colors ${
                   msg.action.tone === "ok"
                     ? "border-ok/40 bg-ok/15 text-ok hover:bg-ok/25"
                     : "border-accent/40 bg-accent/15 text-accent hover:bg-accent/25"

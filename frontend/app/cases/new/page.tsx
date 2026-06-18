@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 /**
  * Chat-style case intake.
  *
@@ -16,8 +17,9 @@
  *      action that hits /api/ingest/finalize and navigates to /cases/{id}.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-
+import { ChatComposer } from "@/components/ChatComposer";
+import { type ChatMessage, ChatMessageBubble } from "@/components/ChatMessage";
+import { type LocalFile, mergeServerStatus } from "@/components/FileRow";
 import {
   ApiError,
   commitUpload,
@@ -28,9 +30,6 @@ import {
   uploadToStorage,
 } from "@/lib/api";
 import { sha256Hex } from "@/lib/sha256";
-import { ChatComposer } from "@/components/ChatComposer";
-import { ChatMessageBubble, type ChatMessage } from "@/components/ChatMessage";
-import { LocalFile, mergeServerStatus } from "@/components/FileRow";
 import type { CaseRow } from "@/lib/types";
 
 /* -------------------------------------------------------------- helpers */
@@ -113,8 +112,7 @@ export default function NewCasePage() {
       {
         id: uid(),
         role: "lumen",
-        text:
-          "Let's build a new case. Fill in the basics or just type the case context — I'll capture it.",
+        text: "Let's build a new case. Fill in the basics or just type the case context — I'll capture it.",
       },
     ]);
   }, []);
@@ -232,7 +230,9 @@ export default function NewCasePage() {
         const status = await getCaseStatus(caseUuid);
         setFiles((prev) =>
           prev.map((row) => {
-            const server = status.documents.find((d) => d.id === row.documentId);
+            const server = status.documents.find(
+              (d) => d.id === row.documentId,
+            );
             if (!server) return row;
             return {
               ...row,
@@ -281,8 +281,7 @@ export default function NewCasePage() {
             : "";
         push({
           role: "lumen",
-          text:
-            `Can't ingest ${rejected.length === 1 ? "this file" : "these files"} yet — only ${SUPPORTED_LABEL} are supported in v1:\n\n${list}${phase2Note}`,
+          text: `Can't ingest ${rejected.length === 1 ? "this file" : "these files"} yet — only ${SUPPORTED_LABEL} are supported in v1:\n\n${list}${phase2Note}`,
         });
       }
 
@@ -302,8 +301,7 @@ export default function NewCasePage() {
       });
       push({
         role: "lumen",
-        text:
-          `Uploading ${queued.length} file${queued.length === 1 ? "" : "s"} directly to object storage and queueing extraction…`,
+        text: `Uploading ${queued.length} file${queued.length === 1 ? "" : "s"} directly to object storage and queueing extraction…`,
       });
 
       // 2. Run each file through the upload pipeline (concurrency = 3).
@@ -329,9 +327,15 @@ export default function NewCasePage() {
     files.length > 0 && allFileStages.every((s) => s === "extracted");
   const anyFailed = allFileStages.includes("failed");
   const anyInFlight = allFileStages.some((s) =>
-    ["queued", "hashing", "signing", "uploading", "committing", "uploaded", "extracting"].includes(
-      s,
-    ),
+    [
+      "queued",
+      "hashing",
+      "signing",
+      "uploading",
+      "committing",
+      "uploaded",
+      "extracting",
+    ].includes(s),
   );
 
   // When we transition into "all extracted", drop a Lumen message offering to
@@ -417,7 +421,9 @@ export default function NewCasePage() {
           <Field label="Jurisdiction">
             <input
               value={form.jurisdiction}
-              onChange={(e) => setForm({ ...form, jurisdiction: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, jurisdiction: e.target.value })
+              }
               className="input"
               maxLength={4}
             />
@@ -435,7 +441,9 @@ export default function NewCasePage() {
           <Field label="Our insured">
             <input
               value={form.insured_name}
-              onChange={(e) => setForm({ ...form, insured_name: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, insured_name: e.target.value })
+              }
               placeholder="Alex Rivera"
               className="input"
             />
@@ -443,7 +451,9 @@ export default function NewCasePage() {
           <Field label="Other party">
             <input
               value={form.other_party_name}
-              onChange={(e) => setForm({ ...form, other_party_name: e.target.value })}
+              onChange={(e) =>
+                setForm({ ...form, other_party_name: e.target.value })
+              }
               placeholder="Jordan Blake"
               className="input"
             />
@@ -462,7 +472,7 @@ export default function NewCasePage() {
           type="button"
           onClick={submitForm}
           disabled={phase !== "intake"}
-          className="self-start rounded-[9px] border border-accent/40 bg-accent/15 px-4 py-2 text-sm text-accent hover:bg-accent/25 disabled:opacity-50"
+          className="self-start rounded-pill border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
         >
           {phase === "intake" ? "Create case" : "Created ✓"}
         </button>
@@ -496,14 +506,15 @@ export default function NewCasePage() {
             <ChatMessageBubble key={m.id} msg={m} />
           ))}
           {anyFailed ? (
-            <div className="rounded-[9px] border border-bad/40 bg-bad/5 px-3 py-2 text-[12px] text-bad">
-              One or more files failed. Remove and re-drop, or check the worker logs.
+            <div className="rounded-pill border border-bad/40 bg-bad/5 px-3 py-2 text-[12px] text-bad">
+              One or more files failed. Remove and re-drop, or check the worker
+              logs.
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="sticky bottom-0 border-t border-border bg-bg/80 p-3 backdrop-blur">
+      <div className="sticky bottom-0 border-border border-t bg-bg/80 p-3 backdrop-blur">
         <ChatComposer
           placeholder={
             !caseRow
@@ -525,10 +536,16 @@ export default function NewCasePage() {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10.5px] uppercase tracking-wider text-muted-2">
+      <span className="text-[10.5px] text-muted-2 uppercase tracking-wider">
         {label}
       </span>
       {children}

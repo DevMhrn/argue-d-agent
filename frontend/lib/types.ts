@@ -122,8 +122,8 @@ export interface LegacyCase {
 /** A case stored in Supabase (created via the /api/ingest/case upload flow). */
 export interface DbCase {
   source: "db";
-  id: string;          // UUID
-  case_id: string;     // human id, e.g. "CLM-2026-0427"
+  id: string; // UUID
+  case_id: string; // human id, e.g. "CLM-2026-0427"
   title: string;
   summary: string | null;
   jurisdiction: string;
@@ -200,7 +200,13 @@ export interface EdgeRow {
 
 export interface DemoCaseResponse {
   source: "demo";
-  meta: { id: string; title: string; subtitle?: string; outcome?: string; file: string };
+  meta: {
+    id: string;
+    title: string;
+    subtitle?: string;
+    outcome?: string;
+    file: string;
+  };
   claim: LegacyClaim;
 }
 

@@ -31,42 +31,52 @@ const NODE_TONE: Record<NodeRow["type"], string> = {
  * The "Locked" framing is deliberate — once built, the ledger is the single
  * source of truth the agents argue over and is never mutated by the debate.
  */
-export function LedgerGraphPanel({ hasLedger, nodes, edges, ingestionComplete }: Props) {
+export function LedgerGraphPanel({
+  hasLedger,
+  nodes,
+  edges,
+  ingestionComplete,
+}: Props) {
   const facts = nodes.filter((n) => n.type === "Fact");
   const otherNodes = nodes.filter((n) => n.type !== "Fact");
 
   return (
-    <section className="rounded-[14px] border border-border bg-panel p-5 shadow-card">
+    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
       <header className="mb-3 flex items-baseline justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold tracking-tight">Evidence Ledger</h3>
+          <h3 className="font-semibold text-base tracking-tight">
+            Evidence Ledger
+          </h3>
           <p className="mt-0.5 text-[12px] text-muted">
-            The locked graph of typed facts + relationships. Every Fact carries a
-            verbatim quote anchored to its source page.
+            The locked graph of typed facts + relationships. Every Fact carries
+            a verbatim quote anchored to its source page.
           </p>
         </div>
         {hasLedger ? (
-          <span className="rounded-full border border-ok/40 bg-ok/10 px-2.5 py-0.5 text-[10.5px] uppercase tracking-wider text-ok">
+          <span className="rounded-full border border-ok/40 bg-ok/10 px-2.5 py-0.5 text-[10.5px] text-ok uppercase tracking-wider">
             Built · {nodes.length} nodes / {edges.length} edges
           </span>
         ) : (
-          <span className="rounded-full border border-warn/40 bg-warn/10 px-2.5 py-0.5 text-[10.5px] uppercase tracking-wider text-warn">
+          <span className="rounded-full border border-warn/40 bg-warn/10 px-2.5 py-0.5 text-[10.5px] text-warn uppercase tracking-wider">
             Locked
           </span>
         )}
       </header>
 
       {!hasLedger ? (
-        <div className="rounded-[9px] border border-border-soft bg-panel-2 p-4 text-[13px] text-muted">
+        <div className="rounded-pill border border-border-soft bg-panel-2 p-4 text-[13px] text-muted">
           {ingestionComplete ? (
             <>
-              <p className="text-text">Ingestion complete. Ledger lane pending.</p>
+              <p className="text-text">
+                Ingestion complete. Ledger lane pending.
+              </p>
               <p className="mt-1.5 text-[12.5px] text-muted">
-                Gowtham&apos;s extractor reads documents + statutes and emits typed
-                nodes (Fact / Party / Vehicle / Event / Statute / …) plus typed
-                edges (mentioned_in / corroborates / contradicts / attributed_to / …).
-                Once that lane writes <span className="font-mono">ledger_complete=true</span>,
-                the Argument Room opens.
+                Gowtham&apos;s extractor reads documents + statutes and emits
+                typed nodes (Fact / Party / Vehicle / Event / Statute / …) plus
+                typed edges (mentioned_in / corroborates / contradicts /
+                attributed_to / …). Once that lane writes{" "}
+                <span className="font-mono">ledger_complete=true</span>, the
+                Argument Room opens.
               </p>
             </>
           ) : (
@@ -80,19 +90,21 @@ export function LedgerGraphPanel({ hasLedger, nodes, edges, ingestionComplete }:
           )}
         </div>
       ) : nodes.length === 0 ? (
-        <p className="text-[13px] text-muted">Ledger marked complete, but no nodes yet.</p>
+        <p className="text-[13px] text-muted">
+          Ledger marked complete, but no nodes yet.
+        </p>
       ) : (
         <div className="space-y-4">
           {facts.length > 0 ? (
             <div>
-              <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-2">
+              <div className="mb-1.5 text-[11px] text-muted-2 uppercase tracking-wider">
                 Facts ({facts.length})
               </div>
               <ul className="grid gap-2">
                 {facts.map((n) => (
                   <li
                     key={n.id}
-                    className="rounded-[9px] border border-border-soft bg-panel-2 p-2.5"
+                    className="rounded-pill border border-border-soft bg-panel-2 p-2.5"
                   >
                     <div className="flex items-baseline gap-2">
                       <span
@@ -105,7 +117,7 @@ export function LedgerGraphPanel({ hasLedger, nodes, edges, ingestionComplete }:
                       </span>
                     </div>
                     {n.verbatim_quote ? (
-                      <blockquote className="mt-1.5 border-l-2 border-border pl-2 font-mono text-[11px] italic text-muted">
+                      <blockquote className="mt-1.5 border-border border-l-2 pl-2 font-mono text-[11px] text-muted italic">
                         &ldquo;{n.verbatim_quote}&rdquo;
                       </blockquote>
                     ) : null}
@@ -117,14 +129,14 @@ export function LedgerGraphPanel({ hasLedger, nodes, edges, ingestionComplete }:
 
           {otherNodes.length > 0 ? (
             <div>
-              <div className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-2">
+              <div className="mb-1.5 text-[11px] text-muted-2 uppercase tracking-wider">
                 Other nodes ({otherNodes.length})
               </div>
               <ul className="flex flex-wrap gap-1.5">
                 {otherNodes.map((n) => (
                   <li
                     key={n.id}
-                    className={`rounded-[6px] border px-2 py-1 text-[11.5px] ${NODE_TONE[n.type]}`}
+                    className={`rounded-md border px-2 py-1 text-[11.5px] ${NODE_TONE[n.type]}`}
                   >
                     <span className="font-mono">{n.node_id}</span>
                     <span className="ml-1.5 opacity-70">· {n.type}</span>
@@ -135,8 +147,8 @@ export function LedgerGraphPanel({ hasLedger, nodes, edges, ingestionComplete }:
           ) : null}
 
           {edges.length > 0 ? (
-            <details className="rounded-[9px] border border-border-soft bg-panel-2">
-              <summary className="cursor-pointer px-3 py-2 text-[12px] font-medium text-text">
+            <details className="rounded-pill border border-border-soft bg-panel-2">
+              <summary className="cursor-pointer px-3 py-2 font-medium text-[12px] text-text">
                 Edges ({edges.length})
               </summary>
               <ul className="space-y-0.5 px-3 pb-2 font-mono text-[11px] text-muted">

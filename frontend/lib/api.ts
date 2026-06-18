@@ -115,7 +115,13 @@ export async function uploadToStorage(
     xhr.onload = () => {
       // S3-compatible PUT returns 200 on success.
       if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new ApiError(`Upload failed: ${xhr.status} ${xhr.statusText}`, xhr.status));
+      else
+        reject(
+          new ApiError(
+            `Upload failed: ${xhr.status} ${xhr.statusText}`,
+            xhr.status,
+          ),
+        );
     };
     xhr.onerror = () => reject(new ApiError("Network error during upload", 0));
     xhr.send(file);
@@ -131,13 +137,19 @@ export async function commitUpload(documentId: string): Promise<DocumentRow> {
   return jsonOrThrow<DocumentRow>(res);
 }
 
-export async function getCaseStatus(caseId: string): Promise<CaseStatusResponse> {
-  const res = await fetch(apiUrl(`/api/ingest/status/${caseId}`), { cache: "no-store" });
+export async function getCaseStatus(
+  caseId: string,
+): Promise<CaseStatusResponse> {
+  const res = await fetch(apiUrl(`/api/ingest/status/${caseId}`), {
+    cache: "no-store",
+  });
   return jsonOrThrow<CaseStatusResponse>(res);
 }
 
 export async function finalizeCase(caseId: string): Promise<CaseRow> {
-  const res = await fetch(apiUrl(`/api/ingest/finalize/${caseId}`), { method: "POST" });
+  const res = await fetch(apiUrl(`/api/ingest/finalize/${caseId}`), {
+    method: "POST",
+  });
   return jsonOrThrow<CaseRow>(res);
 }
 
@@ -164,7 +176,9 @@ export async function getCase(id: string): Promise<CaseDetailResponse> {
 
 /** Backward-compat shim — only used by code paths that still expect the
  *  legacy {claim} shape (the existing three-panel demo view). */
-export async function getDemoClaim(id: string): Promise<{ claim: LegacyClaim }> {
+export async function getDemoClaim(
+  id: string,
+): Promise<{ claim: LegacyClaim }> {
   const data = await getCase(id);
   if (data.source !== "demo") {
     throw new ApiError(`Case ${id} is not a demo case`, 400);

@@ -18,15 +18,9 @@
  * local chips once the corresponding document_id appears on the server.
  */
 import { useCallback, useRef, useState } from "react";
-
-import {
-  ApiError,
-  commitUpload,
-  signUpload,
-  uploadToStorage,
-} from "@/lib/api";
+import type { LocalFile } from "@/components/FileRow";
+import { ApiError, commitUpload, signUpload, uploadToStorage } from "@/lib/api";
 import { sha256Hex } from "@/lib/sha256";
-import { type LocalFile } from "@/components/FileRow";
 
 function uid(): string {
   return crypto.randomUUID();
@@ -72,13 +66,18 @@ export interface UseCaseUploadOptions {
   onRejected?: (rejected: File[]) => void;
 }
 
-export function useCaseUpload(caseUuid: string, opts: UseCaseUploadOptions = {}) {
+export function useCaseUpload(
+  caseUuid: string,
+  opts: UseCaseUploadOptions = {},
+) {
   const { concurrency = 3, onCommitted, onRejected } = opts;
   const [files, setFiles] = useState<LocalFile[]>([]);
   const cursorRef = useRef(0);
 
   const setRow = useCallback((rowUid: string, patch: Partial<LocalFile>) => {
-    setFiles((prev) => prev.map((r) => (r.uid === rowUid ? { ...r, ...patch } : r)));
+    setFiles((prev) =>
+      prev.map((r) => (r.uid === rowUid ? { ...r, ...patch } : r)),
+    );
   }, []);
 
   const runOne = useCallback(
@@ -130,7 +129,8 @@ export function useCaseUpload(caseUuid: string, opts: UseCaseUploadOptions = {})
         else rejected.push(f);
       }
       if (rejected.length > 0) onRejected?.(rejected);
-      if (accepted.length === 0) return { accepted: 0, rejected: rejected.length };
+      if (accepted.length === 0)
+        return { accepted: 0, rejected: rejected.length };
 
       const queued: LocalFile[] = accepted.map((f) => ({
         uid: uid(),
@@ -171,7 +171,9 @@ export function useCaseUpload(caseUuid: string, opts: UseCaseUploadOptions = {})
   }, []);
 
   const anyInFlight = files.some((f) =>
-    ["queued", "hashing", "signing", "uploading", "committing"].includes(f.stage),
+    ["queued", "hashing", "signing", "uploading", "committing"].includes(
+      f.stage,
+    ),
   );
 
   return { files, addFiles, clearCommitted, removeFile, anyInFlight };

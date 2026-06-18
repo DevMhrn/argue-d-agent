@@ -44,14 +44,14 @@ export function GateRail({ postings }: { postings: RoomPosting[] }) {
   }
 
   return (
-    <ol className="flex w-full items-center gap-2 overflow-x-auto rounded-[14px] border border-border bg-panel/80 px-4 py-3">
+    <ol className="flex w-full items-center gap-2 overflow-x-auto rounded-card border border-border bg-panel/80 px-4 py-3">
       {STAGES.map((s, i) => {
         const active = reached.has(s.key);
         const isFailed = failed === s.key;
         return (
-          <li key={s.key} className="flex flex-1 min-w-[120px] items-center gap-2">
+          <li key={s.key} className="flex min-w-30 flex-1 items-center gap-2">
             <span
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[12px] font-medium ${
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border font-medium text-[12px] ${
                 isFailed
                   ? "border-bad/60 bg-bad/15 text-bad"
                   : active

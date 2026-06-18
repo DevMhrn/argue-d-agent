@@ -45,7 +45,7 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         setOver(false);
         if (!disabled) handle(e.dataTransfer.files);
       }}
-      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[14px] border-2 border-dashed p-10 text-center transition-colors ${
+      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed p-10 text-center transition-colors ${
         disabled
           ? "cursor-not-allowed border-border-soft bg-panel/40 opacity-60"
           : over
@@ -54,9 +54,12 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
       }`}
     >
       <div className="text-2xl text-muted">⬆</div>
-      <div className="text-sm font-medium">Drop documents here, or click to pick</div>
+      <div className="font-medium text-sm">
+        Drop documents here, or click to pick
+      </div>
       <div className="text-[12px] text-muted">
-        Accepted: PDF, DOCX, HTML, plain text · up to 50 MB each · up to 50 per case
+        Accepted: PDF, DOCX, HTML, plain text · up to 50 MB each · up to 50 per
+        case
       </div>
       <input
         ref={inputRef}

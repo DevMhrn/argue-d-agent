@@ -1,6 +1,12 @@
 pre-commit:
+  piped: true
   commands:
-    frontend-check:
+    1_frontend-canonical:
+      root: "frontend/"
+      glob: "*.{astro,css,html,js,jsx,md,mdx,ts,tsx}"
+      run: pnpm exec tailwind-suggest-canonical-classes {staged_files} --css ./app/globals.css
+      stage_fixed: true
+    2_frontend-check:
       root: "frontend/"
       glob: "*.{js,jsx,ts,tsx,json,jsonc,css}"
       run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}

@@ -139,7 +139,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
   const failed = docs.filter((d) => d.status === "failed").length;
 
   return (
-    <section className="rounded-[14px] border border-border bg-panel p-5 shadow-card">
+    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
       <header className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <h3 className="font-semibold text-base tracking-tight">Documents</h3>
@@ -163,7 +163,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
           {docs.map((d) => (
             <li
               key={d.id}
-              className="flex items-center justify-between gap-3 rounded-[9px] border border-border-soft bg-panel-2 px-3 py-2"
+              className="flex items-center justify-between gap-3 rounded-pill border border-border-soft bg-panel-2 px-3 py-2"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px]">{d.filename}</div>
@@ -181,7 +181,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
                   ) : null}
                 </div>
                 {d.extraction_error ? (
-                  <div className="mt-1 rounded-[6px] border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
+                  <div className="mt-1 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
                     {d.extraction_error}
                   </div>
                 ) : null}
@@ -209,7 +209,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
       <div className="mt-4">
         <UploadZone onFiles={addFiles} />
         {rejectedNote ? (
-          <div className="mt-2 rounded-[6px] border border-warn/40 bg-warn/5 px-2 py-1 text-[12px] text-warn">
+          <div className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1 text-[12px] text-warn">
             {rejectedNote}
           </div>
         ) : null}

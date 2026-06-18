@@ -33,7 +33,7 @@ export function CaseStatusBadge({ case: c }: { case: CaseRow }) {
   const stage = stageOf(c);
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider ${toneClasses[stage.tone]}`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${toneClasses[stage.tone]}`}
     >
       {stage.label}
     </span>
