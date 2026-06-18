@@ -37,15 +37,25 @@ export function LedgerGraphPanel({
   edges,
   ingestionComplete,
 }: Props) {
+  // `flex-1 min-h-0` lets this panel claim whatever vertical space is left
+  // in the bounded left column after the Documents panel takes its share —
+  // so the column always reaches the same bottom as the Argument Room.
+  // `min-h-[280px]` keeps the "Locked" state visually present when there's
+  // little space (the Documents panel happens to be tall). The header stays
+  // anchored; the facts/edges list scrolls inside the body.
   return (
-    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
-      <LedgerHeader hasLedger={hasLedger} nodes={nodes} edges={edges} />
-      <LedgerContent
-        hasLedger={hasLedger}
-        nodes={nodes}
-        edges={edges}
-        ingestionComplete={ingestionComplete}
-      />
+    <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+      <div className="shrink-0 border-border-soft border-b px-5 pt-5 pb-3">
+        <LedgerHeader hasLedger={hasLedger} nodes={nodes} edges={edges} />
+      </div>
+      <div className="flex-1 overflow-auto px-5 py-4">
+        <LedgerContent
+          hasLedger={hasLedger}
+          nodes={nodes}
+          edges={edges}
+          ingestionComplete={ingestionComplete}
+        />
+      </div>
     </section>
   );
 }
@@ -56,7 +66,7 @@ function LedgerHeader({
   edges,
 }: Pick<Props, "hasLedger" | "nodes" | "edges">) {
   return (
-    <header className="mb-3 flex items-baseline justify-between gap-3">
+    <header className="flex items-baseline justify-between gap-3">
       <div>
         <h3 className="font-semibold text-base tracking-tight">
           Evidence Ledger

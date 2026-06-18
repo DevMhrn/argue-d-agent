@@ -33,13 +33,15 @@ export function ArgumentRoom({
   const running = status === "streaming" || status === "connecting";
 
   return (
-    // The room is the hero panel — give it a bounded height so the inner
-    // transcript scrolls instead of the whole page. Without min-h the empty
-    // state collapses to a sliver; without max-h the section grows with the
-    // grid row (matching the Documents + Ledger column) and the page itself
-    // scrolls instead of the postings. The calc accounts for: sticky nav
-    // (~3.5rem) + case header (~9rem) + gate rail (~4rem) + page padding.
-    <section className="flex h-full min-h-[480px] max-h-[calc(100vh-18rem)] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    // The room is the hero panel — `h-full` stretches it to match the left
+    // column (Documents + Ledger), `max-h-[85vh]` then caps it so a long
+    // debate's postings scroll INSIDE the room instead of growing the row
+    // off-screen. Without the cap, h-full follows the grid row, which
+    // follows the tallest cell, which — when the transcript stacks 30+
+    // postings — is the room itself. That made the inner overflow-auto a
+    // no-op. The 85vh ceiling restores it: on a 1080p monitor the room
+    // can be ~920px tall, then internal scroll takes over.
+    <section className="flex h-full min-h-[480px] max-h-[85vh] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <ArgumentRoomHeader
         status={status}
         bandRoomId={bandRoomId}
