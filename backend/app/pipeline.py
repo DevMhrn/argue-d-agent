@@ -212,7 +212,7 @@ def _reconcile_letter(letter: str, decision: FinalDecision) -> list[str]:
     return issues
 
 
-async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> LumenResult:
+async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledger: EvidenceLedger | None = None) -> LumenResult:
     # Select this case's canned outputs for mock mode (no-op in live mode).
     set_mock_case(claim.caseId)
     docs_text = "\n\n".join(f"### {d.name} ({d.kind})\n{d.text}" for d in claim.documents)
@@ -224,9 +224,16 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> L
     await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
                     f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake.damagesUsd)}")
 
-    # 2) Evidence ledger — built by the ledger lane (typed graph → projected to facts),
-    #    or by the inline evidence agent when the lane is disabled.
-    if USE_LEDGER_LANE:
+    # 2) Evidence ledger — three sources, in priority order:
+    #    (a) a ledger passed in (real cases: loaded from the graph the ledger lane
+    #        already persisted to nodes/edges — we run the debate on it, not rebuild),
+    #    (b) the ledger lane building the typed graph from the claim now, or
+    #    (c) the inline evidence agent when the lane is disabled.
+    if ledger is not None:
+        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
+                        f"Evidence ledger loaded from the persisted graph — {len(ledger.facts)} facts:\n" +
+                        "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+    elif USE_LEDGER_LANE:
         graph = await build_ledger(claim, statutes)
         ledger = graph_to_evidence_ledger(graph)
         await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
