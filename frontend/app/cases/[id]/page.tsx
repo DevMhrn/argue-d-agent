@@ -413,11 +413,6 @@ function DbCaseBody({
 }) {
   const c = data.case as DbCase;
 
-  // Two columns, balanced. Each side caps at 85vh AND stretches to fill its
-  // grid cell (h-full), so both reach the same bottom regardless of which
-  // side has more content. The left wrapper uses min-h-0 so its children
-  // (Documents fixed + Ledger flex-1) can be capped properly — without it,
-  // a tall Documents would push Ledger out of the column.
   return (
     <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex h-full min-h-0 max-h-[85vh] flex-col gap-4 overflow-hidden">
