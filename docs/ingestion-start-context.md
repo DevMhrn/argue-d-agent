@@ -262,12 +262,14 @@ This section documents every significant choice and explicitly states what we **
 
 ### 6.8 Pre-signed URLs for direct browser → storage uploads — YES
 
-**Decision**: The browser uploads files directly to Backblaze B2 using a pre-signed POST URL. The backend never streams file bytes.
+**Decision**: The browser uploads files directly to Backblaze B2 using a pre-signed URL. The backend never streams file bytes.
+
+**Current implementation note**: B2's S3-compatible endpoint rejected POST policy uploads in testing, so `backend/ingestion/storage.py` now signs PUT URLs and the browser sends raw bytes with the signed `Content-Type`.
 
 **Reasoning**:
 - Server-mediated uploads double the bandwidth (browser → backend → storage). For 50 × 50 MB files that's 2.5 GB through our server per case.
 - Pre-signed URLs keep the backend stateless and fast.
-- Modest extra frontend work (compute SHA-256 locally, POST to backend for signed URL, POST file to B2). Worth it.
+- Modest extra frontend work (compute SHA-256 locally, POST to backend for signed URL, PUT file to B2). Worth it.
 
 ### 6.9 Python backend (not TypeScript) — YES
 
@@ -1333,7 +1335,7 @@ Self-loads `backend/.env` via `load_dotenv(dotenv_path=...)` with a path resolve
 
 Real boto3 client against Backblaze B2's S3-compatible endpoint. Path-style addressing (required for B2). `signature_version='s3v4'`. 3 retries on standard mode.
 
-Four operations: `sign_upload` (pre-signed POST policy with size + mime conditions, 5-min TTL), `sign_download` (short-lived GET URL), `head` (returns None on 404), `download` (full bytes for worker).
+Four operations: `sign_upload` (pre-signed PUT URL with 5-min TTL), `sign_download` (short-lived GET URL), `head` (returns None on 404), `download` (full bytes for worker).
 
 **Decision: sync boto3, not aioboto3.** boto3 calls are fast (HEAD, presign) and the worker uses sync libraries anyway (pdfplumber, mammoth). Bridging sync into the async event loop via `asyncio.to_thread(...)` at the call site. aioboto3 has fewer maintainers and more bugs.
 
@@ -1551,7 +1553,7 @@ All small relative to the cost of accidentally merging contradictory facts.
 - SHA-256 content addressing for storage keys.
 - Worker process separate from API.
 - Per-format extractor registry.
-- Pre-signed POST for browser-direct uploads.
+- Pre-signed PUT for browser-direct uploads.
 - Conservative concurrency defaults (max_jobs=4 per worker).
 - Status tracking per document.
 

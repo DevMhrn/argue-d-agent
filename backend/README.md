@@ -1,15 +1,15 @@
-# Lumen — Backend
+# Lumen Backend
 
-Production Python backend for Lumen. Owns the orchestration pipeline, the ingestion lane, the ledger lane (stub), the database schema, and the FastAPI server that ties them together.
+Production Python backend for Lumen. Owns the orchestration pipeline, ingestion lane, ledger lane, database schema, and FastAPI server that ties them together.
 
 ## Layout
 
 ```
 backend/
-├── app/                          # The existing orchestration pipeline (FastAPI + Band SDK)
+├── app/                          # Orchestration pipeline (FastAPI + Band SDK seam)
 │   ├── server.py                #   FastAPI app + SSE routes (cases, run, decision, ingest)
-│   ├── run_server.py            #   Entry point — python -m backend.app.run_server
-│   ├── run_demo.py              #   CLI demo — python -m backend.app.run_demo
+│   ├── run_server.py            #   Entry point: python -m backend.app.run_server
+│   ├── run_demo.py              #   CLI demo: python -m backend.app.run_demo
 │   ├── pipeline.py              #   The structured debate + dual-adjudication + verifier
 │   ├── agents.py / prompts.py   #   Agent definitions + system prompts
 │   ├── gates.py                 #   Citation, Fact, Math gates (code-enforced)
@@ -47,7 +47,7 @@ backend/
 │       ├── text.py              #     plain text
 │       └── registry.py          #     MIME-type -> Extractor dispatch
 │
-├── ledger/                      # Graph builder (Gowtham's lane, stub)
+├── ledger/                      # Graph builder (Gowtham's lane, offline-first)
 │   └── README.md                #   Lane overview and incoming contracts
 │
 └── db/                          # SQL schema + seed data
@@ -71,20 +71,36 @@ Each lane writes only its own tables and reads only the upstream ones. The boole
 
 ```bash
 pip install -r requirements.txt
-python -m backend.app.run_server      # FastAPI server on :3000
-python -m backend.app.run_demo        # CLI demo (mock mode by default)
+PORT=8000 python -m backend.app.run_server
+LUMEN_MOCK=1 python -m backend.app.run_demo
 ```
 
-Live mode requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `OPENAI_API_KEY` in `.env` (agents run across all three model families). Real ingestion additionally requires `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
+The repo runner expects `backend/.env` and starts the FastAPI server on port `8000` when that file follows `.env.example`:
+
+```bash
+./run.sh server
+./run.sh worker
+./run.sh dev
+```
+
+Live model mode requires `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `OPENAI_API_KEY` in `.env` or `backend/.env`. Real ingestion additionally requires `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, and `REDIS_URL`.
+
+Use a Supabase pooler `DATABASE_URL` for local ingestion if `db.<project-ref>.supabase.co` only resolves to IPv6 on your network. The FastAPI server still starts without a DB connection, but `POST /api/ingest/case` will fail until asyncpg can reach Postgres.
+
+## Upload and extraction test
+
+The full upload path needs the FastAPI server, arq worker, Supabase, Backblaze B2, and Redis. With those running, use the chat intake at `/cases/new` or the smoke probe in `scripts/probe_upload.py`. Set `PROBE_UPLOAD_PATH` to upload a local file instead of the default tiny text fixture.
+
+For PDF-specific testing, use a native text PDF such as the supplied NHTSA South Carolina TR-310 manual. Command-line clients may receive a 403 from that host; if so, save the file through a browser and upload it from the frontend or run `PROBE_UPLOAD_PATH=/path/to/sc_tr310_manual_rev8_2012.pdf python -m scripts.probe_upload`. Native PDFs are handled by `backend/ingestion/extractors/pdf.py`; scanned PDFs require OCR and are out of scope for v1.
 
 ## Application schemas vs pipeline types
 
 There are two parallel Pydantic model trees and they describe different things:
 
-- **`backend/schemas/`** — storage layer. One file per table, with `*Row` (read) and `*Create` (write) models. Used by ingestion + ledger repositories and by route handlers.
-- **`backend/app/types.py`** — pipeline layer. Describes agent I/O shapes (`Fact`, `EvidenceLedger`, `Decision`, etc.) used inside `pipeline.py`. Validates LLM output before downstream code touches it.
+- **`backend/schemas/`** - storage layer. One file per table, with `*Row` (read) and `*Create` (write) models. Used by ingestion + ledger repositories and by route handlers.
+- **`backend/app/types.py`** - pipeline layer. Describes agent I/O shapes (`Fact`, `EvidenceLedger`, `Decision`, etc.) used inside `pipeline.py`. Validates LLM output before downstream code touches it.
 
-These overlap by design — a `Fact` in the pipeline becomes a `NodeRow` with `type='Fact'` in storage. The conversion is part of the ledger lane's responsibility.
+These overlap by design: a `Fact` in the pipeline becomes a `NodeRow` with `type='Fact'` in storage. The conversion is part of the ledger lane's responsibility.
 
 ## Why this structure
 
@@ -92,4 +108,4 @@ Three constraints shape the layout:
 
 1. **Each lane owns one concern.** Ingestion is one folder. Ledger is one folder. Orchestration stays in `app/`. No file is owned by two people.
 2. **The DB schema is the contract.** `schemas/` mirrors the migrations. Every read or write goes through a typed model, not raw SQL or untyped dicts.
-3. **Mock mode must keep working.** `app/` is unchanged from `lumen_py/` — only path references were updated. `python -m backend.app.run_demo` runs offline with zero keys, same as before.
+3. **Mock mode must keep working.** `python -m backend.app.run_demo` runs offline with zero keys and is the canonical orchestration smoke test.

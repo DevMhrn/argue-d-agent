@@ -36,7 +36,7 @@ async def main() -> None:
     # Pre-flight the graph the way the downstream gates will.
     documents = {d.name: d.text for d in claim.documents}
     v = validate_graph(graph, documents)
-    print("\n  Fact-anchor / integrity check:", "PASS ✓" if v.ok else "FAIL ✗")
+    print("\n  Fact-anchor / integrity check:", "PASS" if v.ok else "FAIL")
     for issue in v.violations:
         print("    -", issue)
 
@@ -51,7 +51,7 @@ async def main() -> None:
         from .repository import LedgerRepository
         repo = LedgerRepository.from_env()
         case_uuid = repo.persist_case_graph(claim, graph)
-        print(f"\n  ✓ Persisted to Supabase — case {case_uuid}: {len(nodes)} nodes, {len(edges)} edges, ledger_complete=true.")
+        print(f"\n  PASS Persisted to Supabase - case {case_uuid}: {len(nodes)} nodes, {len(edges)} edges, ledger_complete=true.")
 
 
 if __name__ == "__main__":

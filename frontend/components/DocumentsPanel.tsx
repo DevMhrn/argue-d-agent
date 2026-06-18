@@ -18,13 +18,12 @@
  *     This means newly-added documents to a "complete" case still surface.
  *   - Stop polling when every doc is terminal AND no local upload is in flight.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-
-import { getCaseStatus } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
 import { FileRow } from "@/components/FileRow";
 import { UploadZone } from "@/components/UploadZone";
-import { SUPPORTED_FILES_LABEL, useCaseUpload } from "@/lib/useCaseUpload";
+import { getCaseStatus } from "@/lib/api";
 import type { DocumentRow } from "@/lib/types";
+import { SUPPORTED_FILES_LABEL, useCaseUpload } from "@/lib/useCaseUpload";
 
 interface Props {
   caseUuid: string;
@@ -54,17 +53,17 @@ function isTerminal(s: DocumentRow["status"]): boolean {
 export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
   const [docs, setDocs] = useState<DocumentRow[]>(initialDocuments);
   const [rejectedNote, setRejectedNote] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const intervalRef = useRef<number | null>(null);
 
-  const onCommitted = useCallback(() => {
+  function onCommitted() {
     // After a successful commit, force a quick refresh so the new doc lands
     // in the server-side list within ~150 ms (rather than waiting for the
     // next 1.5 s tick).
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caseUuid]);
+    setRefreshNonce((n) => n + 1);
+  }
 
-  const onRejected = useCallback((rejected: File[]) => {
+  function onRejected(rejected: File[]) {
     const list = rejected
       .map((f) => `${f.name} (${f.type || "unknown"})`)
       .join(", ");
@@ -72,28 +71,35 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
       `Can't ingest: ${list}. Only ${SUPPORTED_FILES_LABEL} supported in v1.`,
     );
     window.setTimeout(() => setRejectedNote(null), 6000);
-  }, []);
+  }
 
   const { files, addFiles, clearCommitted, anyInFlight } = useCaseUpload(
     caseUuid,
     { onCommitted, onRejected },
   );
 
-  const refresh = useCallback(async () => {
-    try {
-      const status = await getCaseStatus(caseUuid);
-      setDocs(status.documents);
-      // Drop any local chips whose document is now visible on the server.
-      clearCommitted(new Set(status.documents.map((d) => d.id)));
-    } catch {
-      // ignore transient poll failures
-    }
-  }, [caseUuid, clearCommitted]);
+  useEffect(() => {
+    if (refreshNonce === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await getCaseStatus(caseUuid);
+        if (cancelled) return;
+        setDocs(status.documents);
+        // Drop any local chips whose document is now visible on the server.
+        clearCommitted(new Set(status.documents.map((d) => d.id)));
+      } catch {
+        // ignore transient poll failures
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseUuid, clearCommitted, refreshNonce]);
 
   // Poll while any server-side doc is non-terminal OR any local upload is in flight.
   useEffect(() => {
-    const needsPoll =
-      docs.some((d) => !isTerminal(d.status)) || anyInFlight;
+    const needsPoll = docs.some((d) => !isTerminal(d.status)) || anyInFlight;
     if (!needsPoll) {
       if (intervalRef.current) {
         window.clearInterval(intervalRef.current);
@@ -102,14 +108,25 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
       return;
     }
     if (intervalRef.current) return; // already polling
-    intervalRef.current = window.setInterval(refresh, 1500);
+    intervalRef.current = window.setInterval(() => {
+      (async () => {
+        try {
+          const status = await getCaseStatus(caseUuid);
+          setDocs(status.documents);
+          // Drop any local chips whose document is now visible on the server.
+          clearCommitted(new Set(status.documents.map((d) => d.id)));
+        } catch {
+          // ignore transient poll failures
+        }
+      })();
+    }, 1500);
     return () => {
       if (intervalRef.current) {
         window.clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, [docs, anyInFlight, refresh]);
+  }, [docs, anyInFlight, caseUuid, clearCommitted]);
 
   // Tear down on unmount.
   useEffect(() => {
@@ -125,7 +142,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
     <section className="rounded-[14px] border border-border bg-panel p-5 shadow-card">
       <header className="mb-3 flex items-baseline justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold tracking-tight">Documents</h3>
+          <h3 className="font-semibold text-base tracking-tight">Documents</h3>
           <p className="mt-0.5 text-[12px] text-muted">
             Raw bytes in Backblaze · extracted text + metadata in Supabase.
           </p>
@@ -138,7 +155,9 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
 
       {/* Server-side document list */}
       {docs.length === 0 ? (
-        <p className="text-[13px] text-muted">No documents uploaded for this case yet.</p>
+        <p className="text-[13px] text-muted">
+          No documents uploaded for this case yet.
+        </p>
       ) : (
         <ul className="grid gap-2">
           {docs.map((d) => (
@@ -152,9 +171,13 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
                   <span>{(d.file_size_bytes / 1024).toFixed(1)} KB</span>
                   <span>·</span>
                   <span>{d.mime_type.split("/").pop()}</span>
-                  {d.page_count != null ? <span>· {d.page_count} pages</span> : null}
+                  {d.page_count != null ? (
+                    <span>· {d.page_count} pages</span>
+                  ) : null}
                   {d.retry_count > 0 ? (
-                    <span className="text-warn">· retried {d.retry_count}×</span>
+                    <span className="text-warn">
+                      · retried {d.retry_count}×
+                    </span>
                   ) : null}
                 </div>
                 {d.extraction_error ? (
@@ -164,7 +187,7 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
                 ) : null}
               </div>
               <span
-                className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wider ${STATUS_TONE[d.status]}`}
+                className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium text-[10.5px] uppercase tracking-wider ${STATUS_TONE[d.status]}`}
               >
                 {STATUS_LABEL[d.status]}
               </span>

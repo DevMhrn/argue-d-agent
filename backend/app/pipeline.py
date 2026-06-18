@@ -100,7 +100,7 @@ async def _produce_rebuttal(agent: AgentDef, room: Room, user: str, mock_key_bas
             + "\n- ".join(last_violations)
             + "\nEvery response must cite a valid id."
         )
-        parsed = Rebuttal.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
+        parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
         as_points = [Point(claim=r.claim, citations=r.citations) for r in parsed.responses]
         gate = check_points(as_points, valid_ids)
         if gate.ok or attempt == 2:
@@ -118,6 +118,42 @@ def _parse_decision_or_none(raw: str | BaseException) -> Decision | None:
         return Decision.model_validate(_safe_json(raw))
     except Exception:
         return None
+
+
+def _parse_rebuttal(raw: str) -> Rebuttal:
+    data = _safe_json(raw)
+    if "responses" in data:
+        return Rebuttal.model_validate(data)
+    if "points" in data:
+        responses = []
+        for point in data["points"]:
+            claim = str(point.get("claim", ""))
+            responses.append({
+                "stance": "concede" if "concede" in claim.lower() else "rebut",
+                "claim": claim,
+                "citations": point.get("citations", []),
+            })
+        return Rebuttal.model_validate({"responses": responses})
+    return Rebuttal.model_validate(data)
+
+
+def _parse_letter(raw: str) -> str:
+    try:
+        parsed = _safe_json(raw)
+        letter = parsed.get("letter")
+        if isinstance(letter, str) and letter.strip():
+            return letter
+    except Exception:
+        pass
+
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    match = re.search(r'"letter"\s*:\s*"(?P<letter>[\s\S]*)"\s*\}?$', text)
+    if match:
+        return match.group("letter").replace(r"\n", "\n").replace(r"\"", '"')
+    return text
 
 
 @dataclass
@@ -357,7 +393,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room) -> L
         await room.post(SYS, 196, "decision", f"ESCALATED TO HUMAN ADJUSTER — {'; '.join(reasons)}. Awaiting Approve/Reject.")
 
     # 8) Demand letter
-    letter = _safe_json(await _ask(AGENTS["drafter"], f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter.", "drafter"))["letter"]
+    letter = _parse_letter(await _ask(AGENTS["drafter"], f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter.", "drafter"))
     await room.post(AGENTS["drafter"].name, AGENTS["drafter"].color, "message", "Drafted the formal subrogation demand letter (full text in output).")
 
     # 8b) Letter reconciliation

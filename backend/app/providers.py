@@ -57,13 +57,14 @@ async def chat(
     client = _client_for(provider)
     kwargs = {
         "model": model,
-        "temperature": temperature,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
     }
-    if json:
+    if provider != "anthropic":
+        kwargs["temperature"] = temperature
+    if json and provider != "anthropic":
         kwargs["response_format"] = {"type": "json_object"}
     res = await client.chat.completions.create(**kwargs)  # type: ignore[attr-defined]
     return res.choices[0].message.content or ""

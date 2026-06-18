@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lumen Frontend
 
-## Getting Started
+Next.js 16 + React 19 + Tailwind v4 console for Lumen recovery operations.
 
-First, run the development server:
+## What it renders
+
+The app has three primary routes:
+
+| Route | Purpose |
+|---|---|
+| `/` | Cases list. Shows real Supabase cases and deterministic demo cases side by side. |
+| `/cases/new` | Chat-style intake. Creates a case shell, accepts evidence files, uploads to object storage, polls extraction status, and finalizes ingestion. |
+| `/cases/[id]` | Case detail. Demo IDs open the legacy three-panel mock debate. Supabase UUIDs open the staged real-case view with documents, ledger graph, and locked Argument Room. |
+
+The frontend talks only to the FastAPI API. Browser requests are relative `/api/*` calls; `next.config.ts` rewrites them to the backend during local development.
+
+## Local development
+
+From the repo root, the easiest path is:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+./run.sh dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+That starts:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- FastAPI backend on port `8000`
+- arq extraction worker
+- Next.js dev server on port `3000`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+From this folder alone:
 
-## Learn More
+```bash
+pnpm install
+pnpm dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Set `LUMEN_API_BASE_URL` if the backend is not on `http://127.0.0.1:8000`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Case flows
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Demo cases
 
-## Deploy on Vercel
+Demo cases come from `data/cases.json`. They are labeled with `source: "demo"` by `/api/cases` and run through `/api/run/{id}`. This path is deterministic mock orchestration and does not need Supabase, B2, Redis, or provider keys.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Real cases
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Real cases come from Supabase and are labeled with `source: "db"`. The staged flow is:
+
+1. Create a case shell with `POST /api/ingest/case`.
+2. Sign each upload with `POST /api/ingest/sign-upload`.
+3. PUT raw bytes directly to object storage.
+4. Commit each upload with `POST /api/ingest/commit`.
+5. Poll `GET /api/ingest/status/{case_id}` until extraction is terminal.
+6. Finalize ingestion with `POST /api/ingest/finalize/{case_id}` when needed.
+7. Wait for the ledger lane to write nodes/edges and set `ledger_complete=true`.
+8. Open the Argument Room once the ledger is locked.
+
+`frontend/lib/types.ts` mirrors backend Pydantic response shapes by hand. Update it whenever the FastAPI contract changes.
+
+## Supported uploads
+
+The current v1 upload validation accepts:
+
+- PDF
+- DOCX
+- HTML
+- plain text / Markdown
+
+Images, audio, scanned PDFs, old `.doc`, spreadsheets, and video are roadmap items. Keep `frontend/lib/useCaseUpload.ts`, `/cases/new/page.tsx`, and `backend/ingestion/extractors/registry.py` in sync when supported MIME types change.
+
+## Checks
+
+```bash
+pnpm lint
+pnpm build
+```
+
+Run these inside `frontend/`. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.

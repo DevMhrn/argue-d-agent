@@ -318,19 +318,19 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 ## 17. Open questions / divergences to reconcile
 
 - **DB access is split:** the ingestion lane uses **asyncpg** (direct Postgres) + **boto3** (B2); the ledger lane uses the **supabase** Python client. Both coexist in `requirements.txt`, but the team should standardize on one approach.
-- **`.env` location:** the teammate's `config.py` loads `backend/.env`; our existing real `.env` is at the repo root. We made `config.py` load **both**, but the team should pick one canonical location.
-- **Supabase not yet live:** project is reachable but **migrations aren't applied** and the direct DB host is IPv6-only/unreachable from the build machine. To apply: Supabase SQL editor (paste `001`+`002`) or the IPv4 pooler connection string + `scripts/apply_migrations.py`.
-- **Gemini/OpenAI model IDs** are defaults — confirm in the consoles before live runs. Claude IDs are confirmed (`claude-opus-4-8` etc.).
-- **Scale gap:** ingestion targets 50+ docs/case; the orchestration was demoed on a single-page-per-doc sample. At scale the Evidence Aggregator likely needs a retrieval step (full-text or, eventually, embeddings) — Recourse's RAG is evidence this matters.
-- **Push status:** ~12 local commits ahead of `origin` after the merge; pushing needs GitHub auth on the build machine (`gh auth login`).
+- **`.env` location:** `backend/app/config.py` loads both `backend/.env` and repo-root `.env`. Keep `.env.example` as the shared template; choose one canonical checked-out location per deployment.
+- **Live infra is env-gated:** migrations and seed status depend on credentials outside the repo. This checkout has no `backend/.env`, so live Supabase/B2/Redis state must be reverified before relying on ingestion.
+- **Provider model IDs are defaults:** values in `backend/app/config.py` are configuration defaults. Confirm provider catalog IDs before live runs.
+- **Scale gap:** ingestion targets 50+ docs/case; the orchestration was demoed on compact sample evidence. At scale the Evidence Aggregator likely needs a retrieval step (full-text first, embeddings only if needed).
+- **Real-case orchestration handoff:** the UI and APIs expose Supabase cases, documents, nodes, and edges. `GET /api/run/{case_id}` still runs demo JSON cases; running the debate directly over a persisted graph remains an integration step.
 
 ---
 
 ## 18. Current status (what's done vs. pending)
 
-**Done + verified (mock):** Node + Python backends; 6-gate harness; 8-agent debate; dual-family adjudication; loser/decline case; enterprise web UI (3-panel + assurance rail + audit hash); **real Band integration** (verified all 8 agents post to a live room); ledger lane (offline graph builder, Fact-anchor-valid, wired into the debate); provider swap to Claude/Gemini/OpenAI; teammate's ingestion lane + DB schema merged cleanly. Both backends: `tsc` clean, `py_compile` clean, mock demos → `$35,700` (clean) / decline `$1,980` (loser).
+**Done + verified (mock):** Python backend; 6-gate harness; 8-agent debate; dual-family adjudication; loser/decline case; Next.js recovery-operations console; legacy TypeScript demo retained for offline `pnpm demo`; ledger lane with offline graph builder and Fact-anchor validation; ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
 
-**Pending (priority for 1st place):** ① **deploy live** (Render/Railway/Fly — Python backend; SSE needs a long-lived server, not Vercel functions); ② **record the ~3-min demo video** (clean → recovery + Band room; loser → decline); ③ **pitch deck**; ④ **push to GitHub** (needs auth); ⑤ apply Supabase migrations for a true end-to-end (ingestion→ledger→debate) live path; ⑥ mobilize community votes.
+**Pending / env-gated:** deploy live; record demo assets; confirm provider model IDs in live consoles; reverify Supabase/B2/Redis credentials in the target environment; connect `GET /api/run/{case_id}` to persisted Supabase ledger graphs for real cases.
 
 ---
 
@@ -371,22 +371,22 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 ## 22. How to run
 
 ```bash
-# Python (canonical) — mock, no keys
-.venv/bin/python -m backend.app.run_demo          # CLI, clean case
-.venv/bin/python -m backend.app.run_server        # web → http://localhost:3000
+# Python (canonical) - mock, no keys
+python -m backend.app.run_demo                    # CLI, clean case
+PORT=8000 python -m backend.app.run_server        # API for the Next.js frontend
 
 # Ledger lane (offline graph)
-.venv/bin/python -m backend.ledger.build_demo clean   # or: loser
+python -m backend.ledger.build_demo clean         # or: loser
 
-# Node (fallback) — mock
+# Node (fallback) - mock
 pnpm run demo            # CLI
 pnpm run serve           # web
 
 # Live (backup path): put ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY in .env, then
-LUMEN_MOCK=0 .venv/bin/python -m backend.app.run_server
+LUMEN_MOCK=0 PORT=8000 python -m backend.app.run_server
 
 # Real Band room: fill band_config.yaml (8 agents), then
-LUMEN_BAND=1 .venv/bin/python -m backend.app.run_demo
+LUMEN_BAND=1 python -m backend.app.run_demo
 ```
 
 Demo cases: **`clean`** → escalate / $35,700; **`loser`** → decline / $1,980.

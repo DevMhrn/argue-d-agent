@@ -1,275 +1,185 @@
-# Lumen — Architecture
+# Lumen Architecture
 
-A 5-minute read for anyone opening the codebase. For *what* this project is and *why*, see [`README.md`](../README.md), [`product-context.md`](./product-context.md), and [`project-plan.md`](./project-plan.md). This document explains *how it's built*.
-
----
+This document explains how the current repository is wired. For the product story, read [Product Context](./product-context.md). For the documentation map, read [Documentation Map](./README.md).
 
 ## System Overview
 
-A claim and its documents enter the system on the left. Six specialized agents coordinate through a shared room. A separate **Harness** layer of code-enforced gates watches the agents and rejects work that violates the rules. A Recovery Packet comes out the other side.
+Lumen is now split into three production lanes plus a frontend console:
 
 ```mermaid
 flowchart LR
-  CLAIM[Claim<br/>+ Documents]
-  STATUTES[Statute<br/>Store]
+  UI["Next.js Console\nfrontend/"] --> API["FastAPI API\nbackend/app/server.py"]
+  API --> INGEST["Ingestion Lane\nbackend/ingestion/"]
+  INGEST --> STORE["Supabase + B2 + Redis\ncases, documents, pages"]
+  STORE --> LEDGER["Ledger Lane\nbackend/ledger/"]
+  LEDGER --> GRAPH["Evidence Graph\nnodes + edges"]
+  GRAPH --> ROOM["Argument Room\nbackend/app/pipeline.py"]
+  ROOM --> PACKET["Recovery Packet\ndecision + letter + transcript"]
 
-  subgraph ROOM[Band Room — coordination layer]
-    direction TB
-    A1[1 · Intake] --> A2[2 · Evidence]
-    A2 --> A3[3 · Advocate]
-    A3 --> A4[4 · Opposing Red Team]
-    A4 --> A5[5 · Adjudicator]
-    A5 --> A6[6 · Letter Drafter]
+  subgraph HARNESS["Harness - code gates"]
+    FACT["Fact Gate"]
+    CITE["Citation Gate"]
+    MATH["Math Gate"]
+    ALIGN["Source Alignment"]
+    LETTER["Letter Reconciliation"]
   end
 
-  subgraph HARNESS[Harness — code, not prompts]
-    direction TB
-    G1[Fact Gate]
-    G2[Citation Gate]
-    G3[Math Gate]
-    G4[Letter Reconciliation]
-  end
-
-  CLAIM --> A1
-  STATUTES --> A3
-
-  A2 -. checks .-> G1
-  A3 -. checks .-> G2
-  A4 -. checks .-> G2
-  A5 -. checks .-> G3
-  A6 -. checks .-> G4
-
-  A6 --> PACKET[Recovery Packet:<br/>fault % · $ recovery ·<br/>demand letter · transcript]
-
-  classDef room fill:#1f2937,stroke:#374151,color:#e5e7eb;
-  classDef harness fill:#7f1d1d,stroke:#991b1b,color:#fee2e2;
-  classDef io fill:#0f766e,stroke:#0d9488,color:#ccfbf1;
-  class A1,A2,A3,A4,A5,A6 room;
-  class G1,G2,G3,G4 harness;
-  class CLAIM,STATUTES,PACKET io;
+  LEDGER -. validates .-> FACT
+  ROOM -. validates .-> CITE
+  ROOM -. validates .-> MATH
+  ROOM -. audits .-> ALIGN
+  ROOM -. validates .-> LETTER
 ```
 
-Two ideas to anchor on:
+The production backend is Python under `backend/`. The root `src/` and `server/` folders are retained as the legacy offline TypeScript demo and should not drive production decisions.
 
-1. **The Room is where agents talk.** It's an ordered transcript with a subscription callback. In the current code it's an in-memory stand-in (`src/room.ts`); when the Band SDK is wired in, this is the single swap point.
-2. **The Harness watches the Room.** Each gate is plain code — not a prompt — and runs at a specific point in the pipeline. Agents cannot bypass them; the LLM can't outsmart `Set.has()` or arithmetic.
+## Case Sources
 
----
+The frontend shows two case sources through the same API surface:
 
-## Pipeline Sequence
+| Source | IDs | Backing store | Main use |
+|---|---|---|---|
+| Demo cases | `clean`, `loser` | `data/cases.json` + sample JSON claims | Deterministic mock debate and judge demo |
+| Real cases | Supabase UUIDs | `cases`, `documents`, `document_pages`, `nodes`, `edges` | Uploaded evidence and staged production workflow |
 
-The 6 agents fire in a fixed order. The Harness intercepts at four moments. There is intentionally **no consensus round** — debate closes, then a separate neutral agent decides.
+`GET /api/cases` returns both demo cases and Supabase cases. `GET /api/case/{id}` dispatches by ID shape: demo IDs return the legacy `{meta, claim}` shape, while UUIDs return `{case, documents, has_ledger, nodes, edges}` for the staged case-detail UI.
+
+`GET /api/run/{case_id}` still runs the debate against demo cases only. Real Supabase cases are staged until the ledger lane writes `ledger_complete=true`; the argument-room UI is ready for that handoff, but orchestration over a persisted graph is the next integration step.
+
+## Production Flow
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant C as Claim Input
-  participant I as Intake
-  participant E as Evidence
-  participant A as Advocate
-  participant O as Opposing
-  participant J as Adjudicator
-  participant D as Drafter
-  participant H as Harness
+  participant U as User
+  participant F as Frontend
+  participant A as FastAPI
+  participant B as B2
+  participant Q as Redis/arq
+  participant D as Supabase
+  participant L as Ledger Lane
+  participant R as Argument Room
 
-  C->>I: documents
-  I->>E: parties, date, location, damages
-  E->>H: ledger (F1…Fn + verbatim quotes)
-  H-->>E: ✓ Fact Gate
-  Note over H: every fact's quote must<br/>appear in its source doc
-
-  E->>A: locked ledger + statutes
-  A->>H: opening points
-  H-->>A: ⛔ Citation Gate (retry)
-  A->>H: fixed points
-  H-->>A: ✓ Citation Gate
-
-  Note over O: blind: builds own theory<br/>before seeing Advocate
-  A->>O: position visible now
-  O->>A: attacks (each cited)
-
-  A->>J: rebuttal (concede or rebut)
-  J->>H: decision + fault table
-  H-->>J: ✓ Math Gate
-  Note over H: stated % must match<br/>table within ±10pp
-
-  J->>D: decision
-  D->>H: demand letter
-  H-->>D: ✓ Letter Reconciliation
-  Note over H: letter must contain<br/>the % and the $ amount
-
-  D->>C: Recovery Packet
+  U->>F: Create case shell
+  F->>A: POST /api/ingest/case
+  A->>D: insert cases row
+  U->>F: Drop PDF/DOCX/HTML/text evidence
+  F->>A: POST /api/ingest/sign-upload
+  A->>D: reserve documents row
+  A-->>F: pre-signed PUT URL
+  F->>B: PUT raw bytes
+  F->>A: POST /api/ingest/commit
+  A->>Q: enqueue extraction job
+  Q->>A: worker extracts text
+  A->>D: insert document_pages
+  A->>D: flip ingestion_complete when all docs extracted
+  L->>D: read documents + pages + statutes
+  L->>D: write nodes + edges, flip ledger_complete
+  F->>R: Open room once ledger is locked
+  R-->>F: SSE transcript + decision + letter
 ```
 
----
+The handoff flags on `cases` are the lane contract:
 
-## The Harness — Four Code-Enforced Gates
+| Flag | Set by | Opens |
+|---|---|---|
+| `ingestion_complete` | Ingestion worker or manual finalize endpoint | Ledger graph build |
+| `ledger_complete` | Ledger repository after nodes and edges persist | Argument Room |
+| `finalized` | Orchestration/human review path | Closed recovery packet |
 
-The harness is the most important architectural decision in the project. It defends against the two failure modes that destroy multi-agent systems: **hallucination** (agents inventing facts) and **collusion** (agents drifting toward false agreement).
+## Agents And Gates
 
-| Gate | What it checks | Where | Catches |
-|---|---|---|---|
-| **Fact Gate** | Every ledger fact's `verbatimQuote` must be a contiguous substring of its source document | `src/factGate.ts` | Evidence agent mis-extracting facts, swapping parties, or hallucinating sources |
-| **Citation Gate** | Every argument point must have ≥1 citation, and every citation must resolve to a known fact ID or statute ID | `src/citationGate.ts` | Advocate/Opposing inventing citations or arguing without evidence |
-| **Math Gate** | Adjudicator's stated fault % must follow from its own fault table (within ±10pp tolerance) | `src/mathGate.ts` | Adjudicator's table and percentage drifting apart (LLMs are bad at arithmetic) |
-| **Letter Reconciliation** | Final demand letter must contain the decided fault % and recovery $ amount | `src/pipeline.ts` (inline) | Drafter producing a letter that contradicts the dashboard |
+The orchestration lane still uses the original specialist team, now mirrored in `backend/app/`:
 
-Gates that fail produce a visible posting in the room. Citation Gate failures trigger a retry with the violation injected back into the prompt. Math/Letter failures force escalation.
+| Agent | File | Role |
+|---|---|---|
+| Intake Parser | `backend/app/agents.py` | Extracts incident facts |
+| Evidence Aggregator | `backend/app/agents.py` | Builds the evidence ledger in demo fallback mode |
+| Liability Advocate | `backend/app/agents.py` | Argues for recovery |
+| Opposing-Carrier Red Team | `backend/app/agents.py` | Attacks the recovery case |
+| Adjudicator A | `backend/app/agents.py` | Primary neutral fault decision |
+| Adjudicator B | `backend/app/agents.py` | Independent cross-family decision |
+| Source-Alignment Verifier | `backend/app/agents.py` | Audits cited claims against source facts |
+| Demand Letter Drafter | `backend/app/agents.py` | Writes the demand package |
 
----
+Model-family defaults live in `backend/app/config.py` and are environment-overridable. Treat those values as configuration defaults only; confirm provider catalog IDs before live runs.
 
-## Anti-Collusion Mechanisms (Not Gates, but Structural)
+The code gates are in `backend/app/gates.py` plus the letter reconciliation check in `backend/app/pipeline.py`:
 
-These don't have a single file — they're properties of the pipeline:
+| Gate | What it checks | Failure behavior |
+|---|---|---|
+| Fact Gate | Ledger facts quote exact source text | Blocks bad facts from grounding the debate |
+| Citation Gate | Argument points cite known fact IDs or statute IDs | Retries with visible room warning |
+| Math Gate | Fault percentage matches the adjudicator table within tolerance | Excludes bad adjudicator output and escalates |
+| Source Alignment | Verifier labels cited claims as supported or contradicted | Contradictions feed escalation |
+| Letter Reconciliation | Letter contains the decided fault percentage and recovery amount | Forces escalation if the packet contradicts the decision |
 
-- **Independent drafts.** Opposing builds its own theory *before* seeing Advocate's points (`pipeline.ts` step 4). No anchoring.
-- **Different model families per side.** Advocate on Claude family, Opposing on GPT family (`config.ts`). Resists sycophantic convergence.
-- **Red team prompt.** Opposing is forbidden from negotiating or seeking agreement (`prompts.ts:OPPOSING_PROMPT`).
-- **No consensus round.** The pipeline ends debate after rebuttal. There is no "find common ground" turn anywhere in the code.
-- **Separation of powers.** Debaters do not decide. A separate Adjudicator agent reads the transcript and computes fault.
-- **Escalation triggers.** Recovery ≥ $25K, confidence < 0.6, fault near 50/50, or any gate violation → human approval required.
+## Evidence Ledger
 
----
+The durable ledger is a typed graph:
 
-## Agents & Provider Routing
+- `nodes` store facts, parties, vehicles, events, locations, statutes, damages, and documents.
+- `edges` store relationships such as `mentioned_in`, `corroborates`, `contradicts`, `attributed_to`, and `governed_by`.
+- Fact nodes must carry `verbatim_quote`, `source_document_id`, and `source_page_number`.
 
-Each agent runs on the model best suited for its job, across **three independent model families** (Anthropic / Google / OpenAI). The assignment is deliberate: the Advocate (Claude) debates the Opposing red team (GPT), and Adjudicator A (Claude) is checked against Adjudicator B (Gemini) — different families, so the debate and the consensus check are genuinely independent, not one model arguing with itself.
+The debate lane consumes an `EvidenceLedger` projection of the graph. The projection is created by `backend/ledger/builder.py` through `graph_to_evidence_ledger(graph)`.
 
-| # | Agent | File | Provider | Model (default) | Job |
-|---|---|---|---|---|---|
-| 1 | Intake Parser | `agents.ts` | OpenAI (GPT) | `gpt-4o-mini` | Extract parties, date, location, damages |
-| 2 | Evidence Aggregator | `agents.ts` | Google (Gemini) | `gemini-2.5-flash` | Build the Evidence Ledger from documents |
-| 3 | Liability Advocate | `agents.ts` | Anthropic (Claude) | `claude-opus-4-8` | Argue our insured is owed recovery |
-| 4 | Opposing Red Team | `agents.ts` | OpenAI (GPT) | `gpt-4o` | Attack our case (never negotiates) |
-| 5 | Adjudicator A | `agents.ts` | Anthropic (Claude) | `claude-opus-4-8` | Neutrally weigh evidence → fault % |
-| 6 | Adjudicator B | `agents.ts` | Google (Gemini) | `gemini-2.5-pro` | Independent check on a different family |
-| 7 | Source-Alignment Verifier | `agents.ts` | Google (Gemini) | `gemini-2.5-flash` | Audit every cited claim vs its source |
-| 8 | Demand Letter Drafter | `agents.ts` | Anthropic (Claude) | `claude-sonnet-4-6` | Compose the formal demand letter |
+## Mock And Live Modes
 
-All three are reached via their OpenAI-compatible chat endpoints (one client, different base_url + key per provider). Model IDs default in `config.ts`/`config.py:MODELS` and are env-overridable — confirm exact catalog IDs before flipping to live mode.
+Mock mode remains the safe default. With no provider keys, `backend/app/providers.py` uses deterministic responses from `backend/app/mock_responses.py`. Live mode is enabled by setting `LUMEN_MOCK=0` and provider keys in `.env` or `backend/.env`.
 
----
+The Python CLI demo is the canonical no-infra check:
 
-## The Evidence Ledger (the central data structure)
-
-Everything in this system orbits one shape: an atomic, cited, source-anchored list of facts. The Evidence agent produces it once; every downstream agent argues *only* over it.
-
-```typescript
-// src/types.ts
-{
-  caseId: "CLM-2026-0427",
-  facts: [
-    {
-      id: "F1",                                                  // referenced as [F1]
-      statement: "Driver B entered against a steady red light.",  // paraphrase
-      source: "police_report.pdf",                                // doc filename
-      verbatimQuote: "Vehicle 2 (Blake) entered the intersection against a steady red signal",
-      confidence: 0.9
-    },
-    // ...
-  ]
-}
+```bash
+python -m backend.app.run_demo
 ```
 
-The `verbatimQuote` field is what the **Fact Gate** verifies. The `id` field is what the **Citation Gate** validates against. Together they make the ledger a real foundation rather than an LLM summary.
+The legacy TypeScript demo remains available through `pnpm demo`, but it should not be fixed unless a request explicitly targets the legacy path.
 
----
+## Band Room Seam
+
+The active Band seam is `backend/app/room.py`:
+
+- `LocalRoom` is the in-memory mock room.
+- `BandRoom` is the real SDK-backed room.
+- `make_room()` selects the implementation based on `LUMEN_BAND`.
+
+Pipeline code posts through the same room interface in both modes, so the harness and agent sequencing remain Band-agnostic.
 
 ## Code Map
 
-```
+```text
+backend/
+  app/          FastAPI server, room, agents, providers, gates, pipeline
+  ingestion/    Upload signing, B2 storage, async extraction queue, extractors
+  ledger/       Typed graph builder, mock graphs, Supabase persistence seam
+  schemas/      Pydantic row models mirroring database tables
+  db/           Supabase SQL migrations and schema notes
+frontend/
+  app/          Next.js routes: cases list, new case chat intake, case detail
+  components/   Documents, ledger graph, room, decision, gate panels
+  lib/          Typed API client, upload helper, SSE stream hook, shared types
 src/
-├── config.ts          Providers, model IDs, ESCALATE_USD threshold
-├── types.ts           Zod schemas — Fact, Ledger, Point, Rebuttal, Decision
-├── providers.ts       OpenAI-compatible client + auto mock switch
-├── mockResponses.ts   Deterministic canned outputs for offline runs
-├── ledger.ts          validCitationIds() + ledger/statute rendering
-├── citationGate.ts    Code gate #1 — points must cite known IDs
-├── factGate.ts        Code gate #2 — facts must anchor to verbatim source text
-├── mathGate.ts        Code gate #3 — adjudicator math must hold
-├── prompts.ts         System prompts (anti-hallucination rules baked in)
-├── agents.ts          AgentDef objects (role, provider, model, color)
-├── room.ts            Band-room stand-in (post() + onPost subscription)
-├── pipeline.ts        The structured debate + adjudication + Letter Recon
-└── runDemo.ts         CLI entry point with colored transcript
+  Legacy TypeScript demo only
+server/
+  Legacy Express server only
 data/
-├── sample_claim_clean.json    One clean-win case (CA, $42K, red light)
-└── statutes.json              Verbatim statute text (CA-1431.2, CVC-21453)
+  Demo case registry, sample claims, statute fixtures
 ```
 
-The whole system is **deliberately small** (≈600 lines TypeScript). Readability is the goal — judges should be able to point at any decision in the demo and see it in the code.
+## Extending The System
 
----
+To add an ingestion format, add an extractor in `backend/ingestion/extractors/`, register its MIME type in `registry.py`, and mirror the supported type in the frontend upload validation.
 
-## Mock vs Live Mode
+To add a graph concept, update the SQL check constraint, the matching Pydantic schema in `backend/schemas/`, the frontend `NodeType` or `EdgeType`, and the ledger builder.
 
-The pipeline is **identical** in both modes; only the model client changes. This is the single most important property for hackathon demos — the recorded video can run on mock with zero risk of API flakes, while live mode validates against real models.
+To add or change an agent, update `backend/app/prompts.py`, `backend/app/agents.py`, mock responses, and the structured output model in `backend/app/types.py` if the shape changes.
 
-```mermaid
-flowchart LR
-  PIPELINE[Pipeline] --> CHAT["providers.ts<br/>chat()"]
-  CHAT -->|isMock = true| MOCK[mockResponses.ts<br/>canned JSON]
-  CHAT -->|isMock = false| LIVE[OpenAI-compatible<br/>HTTP call]
-  LIVE --> P1[Anthropic Claude]
-  LIVE --> P2[Google Gemini]
-  LIVE --> P3[OpenAI GPT]
+To add a new gate, keep it as plain code, wire it into `backend/app/pipeline.py`, and post the result to the room so the UI transcript shows the enforcement point.
 
-  classDef pipe fill:#0f766e,stroke:#0d9488,color:#ccfbf1;
-  classDef leaf fill:#1f2937,stroke:#374151,color:#e5e7eb;
-  class PIPELINE,CHAT pipe;
-  class MOCK,LIVE,P1,P2,P3 leaf;
-```
+## Non-Goals
 
-Mock is the default when no API keys are set. Override with `LUMEN_MOCK=1` (force mock) or `LUMEN_MOCK=0` (force live, requires keys in `.env`).
-
----
-
-## Band SDK Swap Point
-
-There is **exactly one file** to change when the real Band SDK is wired in: `src/room.ts`.
-
-```typescript
-// Today: in-memory stand-in
-post(agent, color, kind, content): Posting { /* push to local array */ }
-
-// With Band SDK: same signature
-post(agent, color, kind, content): Posting {
-  return bandRoom.sendMessage({ agent, kind, content });
-}
-```
-
-Everything else — the pipeline, the gates, the prompts, the agents — is Band-agnostic. The gates and turn protocol become Band room rules; the rest is unchanged.
-
----
-
-## Extending the System
-
-To add a new agent (e.g., the stretch "Source-Alignment Verifier"):
-
-1. Add the system prompt to `src/prompts.ts`
-2. Add an `AgentDef` to `src/agents.ts` with provider + model
-3. Add a mock response in `src/mockResponses.ts` keyed by `mockKey`
-4. Add the call in the right place in `src/pipeline.ts`
-5. If it produces structured output, add a zod schema in `src/types.ts`
-
-To add a new gate:
-
-1. Create `src/<name>Gate.ts` exporting a pure `check(...)` function
-2. Call it in `src/pipeline.ts` at the right point
-3. Post the result to the room with `'gate'` kind (`runDemo.ts` renders ✓/⛔ automatically)
-
-To add a new test case:
-
-1. Drop a JSON file in `data/` matching the `ClaimInput` shape
-2. Add matching mock responses to `mockResponses.ts` (keyed off the pipeline's `mockKey` values)
-3. Update `runDemo.ts` to load it (or accept a CLI arg)
-
----
-
-## What This Architecture Is Not Trying To Be
-
-To prevent scope creep, three explicit non-goals:
-
-- **Not an autonomous filing system.** A human always signs off on demand letters; the system produces first drafts.
-- **Not a general-purpose multi-agent framework.** This is one workflow done well. Generality would dilute the demo.
-- **Not infrastructure for Band itself.** We use Band as a coordination layer; we don't extend its primitives.
+- No autonomous filing or sending demand letters without human review.
+- No generic multi-agent framework. Lumen is one recovery workflow.
+- No scanned-PDF OCR, image vision, audio transcription, or spreadsheet ingestion in v1.
+- No legacy TypeScript cleanup unless the legacy demo itself is the target.

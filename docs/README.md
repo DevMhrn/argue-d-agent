@@ -9,6 +9,8 @@ Use this directory for durable project context, design notes, architecture recor
 - [Product Context](./product-context.md) - the plain-English subrogation story, Lumen's six-agent model, safety rules, and ownership boundary.
 - [Architecture](./architecture.md) - current orchestration flow, room behavior, gates, and package assembly.
 - [Project Plan](./project-plan.md) - hackathon strategy, milestones, and broader delivery plan.
+- [Backend README](../backend/README.md) - production Python lane map, local commands, ingestion test notes.
+- [Frontend README](../frontend/README.md) - Next.js console routes, API contracts, upload behavior.
 - [Contributor Guide](../AGENTS.md) - repository conventions for coding agents and human contributors.
 
 ## Suggested Structure

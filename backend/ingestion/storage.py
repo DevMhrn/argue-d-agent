@@ -4,7 +4,7 @@ The default backend is Backblaze B2 via the S3-compatible API. boto3 with a
 custom `endpoint_url` works unchanged. Three operations the ingestion
 pipeline actually uses:
 
-    sign_upload(key, mime_type, ...)  -> SignedUpload (pre-signed POST policy)
+    sign_upload(key, mime_type, ...)  -> SignedUpload (pre-signed PUT URL)
     sign_download(key, ...)           -> short-lived GET URL
     head(key)                         -> object metadata or None if not found
     download(key)                     -> bytes (worker fetches files this way)
@@ -65,7 +65,7 @@ class SignedUpload:
     """Everything the browser needs to PUT a file directly to object storage.
 
     Backblaze B2's S3-compatible API does NOT implement POST policies (returns
-    HTTP 501 NotImplemented). We use pre-signed PUT URLs instead — universally
+    HTTP 501 NotImplemented). We use pre-signed PUT URLs instead, universally
     supported and simpler client-side. The browser sends:
 
         PUT <url>
@@ -113,7 +113,7 @@ class ObjectStorage:
         mime_type: str,
         *,
         expires_in: int = 300,
-        max_size_bytes: int = 50 * 1024 * 1024,  # noqa: ARG002 — kept for caller signature
+        max_size_bytes: int = 50 * 1024 * 1024,  # noqa: ARG002 - kept for caller signature
     ) -> SignedUpload:
         """Return a pre-signed PUT URL so the browser can upload directly.
 
@@ -121,7 +121,7 @@ class ObjectStorage:
         NotImplemented for POST policy uploads. The PUT route is universally
         supported across S3-compatible stores (B2, AWS, R2, MinIO).
 
-        The signature covers the bucket, key, and HTTP method — the browser
+        The signature covers the bucket, key, and HTTP method. The browser
         must echo the Content-Type that was signed. Size validation happens
         at the PrepareUploadRequest layer before this method is called.
         """

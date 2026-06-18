@@ -10,6 +10,7 @@
     "serve": "tsx server/server.ts",
     "serve:live": "LUMEN_MOCK=0 tsx server/server.ts",
     "start": "tsx server/server.ts",
+    "prepare": "lefthook install",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.3",
+    "lefthook": "^2.1.9",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
