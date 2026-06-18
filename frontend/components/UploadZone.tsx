@@ -59,7 +59,7 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         Drop documents here, or click to pick
       </div>
       <div className="text-[12px] text-muted">
-        Documents (PDF · DOCX · Excel · HTML · MD · TXT) up to {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
+        Documents (PDF · DOCX · Excel · CSV · HTML · MD · TXT) up to {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
         <br />
         Images up to {LIMITS.image.maxMb} MB · max {LIMITS.image.maxFiles}/case &nbsp;·&nbsp; Audio up to {LIMITS.audio.maxMb} MB · max {LIMITS.audio.maxFiles}/case
       </div>
@@ -70,7 +70,7 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         hidden
         accept={
           accept ??
-          ".pdf,.docx,.xlsx,.html,.htm,.txt,.md,.mp3,.m4a,.mp4,.wav,.jpg,.jpeg,.png,.webp,application/pdf"
+          ".pdf,.docx,.xlsx,.csv,.tsv,.html,.htm,.txt,.md,.mp3,.m4a,.mp4,.wav,.webm,.jpg,.jpeg,.png,.webp,.gif,application/pdf,text/csv"
         }
         onChange={(e) => handle(e.target.files)}
       />

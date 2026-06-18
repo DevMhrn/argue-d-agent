@@ -20,6 +20,8 @@ const DOCUMENT_MIME = new Set<string>([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/csv",
   "text/html",
   "application/xhtml+xml",
   "text/plain",
@@ -50,7 +52,7 @@ export const SUPPORTED_MIME_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export const SUPPORTED_FILES_LABEL =
-  "PDF · DOCX · Excel · HTML · Markdown · plain text · images · audio";
+  "PDF · DOCX · Excel · CSV · HTML · Markdown · plain text · images · audio";
 
 export function classify(mime: string): FileCategory | null {
   if (DOCUMENT_MIME.has(mime)) return "document";
@@ -149,6 +151,8 @@ export function mimeOf(file: File): string {
       pdf: "application/pdf",
       docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      csv: "text/csv",
+      tsv: "text/csv",
       html: "text/html",
       htm: "text/html",
       txt: "text/plain",

@@ -10,6 +10,7 @@ from typing import Optional
 
 from .audio import AudioExtractor
 from .base import Extractor
+from .csv import CsvExtractor
 from .docx import DocxExtractor
 from .excel import ExcelExtractor
 from .html import HtmlExtractor
@@ -21,6 +22,7 @@ _REGISTRY: list[Extractor] = [
     PdfExtractor(),
     DocxExtractor(),
     ExcelExtractor(),
+    CsvExtractor(),
     HtmlExtractor(),
     TextExtractor(),
     AudioExtractor(),

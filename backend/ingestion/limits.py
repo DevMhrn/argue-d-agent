@@ -3,7 +3,7 @@
 Lumen accepts three classes of evidence files, each with its own size cap and
 per-case file-count cap:
 
-    document   PDF, DOCX, XLSX, HTML, TXT, MD              10 MB ·  50 files / case
+    document   PDF, DOCX, XLSX, CSV, HTML, TXT, MD         10 MB ·  50 files / case
     image      JPEG, PNG, WebP, GIF                        10 MB ·  15 files / case
     audio      MP3, MP4, M4A, WAV, WebM                    50 MB ·  10 files / case
 
@@ -22,6 +22,8 @@ DOCUMENT_MIME_TYPES = frozenset({
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
+    "application/csv",
     "text/html",
     "application/xhtml+xml",
     "text/plain",
