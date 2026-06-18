@@ -44,7 +44,9 @@ The frontend shows two case sources through the same API surface:
 
 `GET /api/cases` returns both demo cases and Supabase cases. `GET /api/case/{id}` dispatches by ID shape: demo IDs return the legacy `{meta, claim}` shape, while UUIDs return `{case, documents, has_ledger, nodes, edges}` for the staged case-detail UI.
 
-`GET /api/run/{case_id}` still runs the debate against demo cases only. Real Supabase cases are staged until the ledger lane writes `ledger_complete=true`; the argument-room UI is ready for that handoff, but orchestration over a persisted graph is the next integration step.
+The ledger handoff is wired: when ingestion flips `ingestion_complete=true`, the winning worker enqueues the arq job `run_ledger_build`, which reads the case's documents/pages/statutes, builds the typed graph, writes `nodes`/`edges` via asyncpg, and flips `ledger_complete=true` (see `backend/ledger/service.py`, `db_repository.py`, `jobs.py`). That opens the Argument Room in the UI.
+
+`GET /api/run/{case_id}` still runs the debate against demo cases only. Real Supabase cases now reach `ledger_complete=true` with a persisted graph, but running the debate *over that persisted graph* (read `nodes`/`edges` → `graph_to_evidence_ledger` → `run_lumen`) is the next integration step.
 
 ## Production Flow
 

@@ -6,10 +6,12 @@ This module builds the Evidence Ledger — the typed graph of facts, parties, ve
 
 ## Inputs
 
-When `cases.ingestion_complete = true` flips for a case, this lane is woken up. It reads:
+When `cases.ingestion_complete = true` flips for a case, the ingestion worker that won the flip enqueues the arq job **`run_ledger_build`** (`jobs.py`). The worker runs `service.build_and_persist_ledger(case_id)`, which reads:
 
 - `documents` and `document_pages` for that case (extracted text + page-level anchors)
 - `statutes` (the public legal-text store)
+
+Reads go through the ingestion repository (it owns those tables); this lane owns the writes.
 
 ## Outputs
 
@@ -34,13 +36,16 @@ The application-level Pydantic models for `nodes` and `edges` live in `backend/s
 
 ```
 backend/ledger/
-├── graph.py        # LedgerNode/LedgerEdge/LedgerGraph + validate_graph() + render_graph()
-├── builder.py      # build_ledger(claim, statutes) → graph; + graph_to_evidence_ledger()
-├── prompts.py      # EXTRACTION_PROMPT for the live extraction agent
-├── mock_graphs.py  # deterministic graphs for the sample cases (offline, no keys)
-├── repository.py   # Supabase write seam: to_node_creates/to_edge_creates, dry_run(), LedgerRepository
-├── build_demo.py   # CLI: build + validate + inspect a graph offline
-└── README.md       # this file
+├── graph.py         # LedgerNode/LedgerEdge/LedgerGraph + validate_graph() + render_graph()
+├── builder.py       # build_ledger(claim, statutes) → graph; + graph_to_evidence_ledger()
+├── prompts.py       # EXTRACTION_PROMPT for the live extraction agent
+├── mock_graphs.py   # deterministic graphs for the sample cases (offline, no keys)
+├── service.py       # build_and_persist_ledger(case_id): the real-flow entry point
+├── db_repository.py # LedgerWriteRepository: asyncpg nodes/edges writes + ledger_complete flip
+├── jobs.py          # run_ledger_build arq job (registered in the ingestion worker)
+├── repository.py    # pure mappers to_node_creates/to_edge_creates + dry_run(); legacy supabase-py LedgerRepository (build_demo --persist only)
+├── build_demo.py    # CLI: build + validate + inspect a graph offline
+└── README.md        # this file
 ```
 
 ### Run it offline (no keys, no DB)
@@ -59,12 +64,19 @@ the downstream Fact Gate), shows the row counts it would persist, and the
 - **Offline/mock** (`is_mock()` — no provider keys): `build_ledger` returns a
   hand-verified graph from `mock_graphs.py` whose Fact quotes are exact substrings of
   the sample documents. Runs today with zero infra.
-- **Live**: `build_ledger` runs the extraction agent (Featherless) over the document
+- **Live**: `build_ledger` runs the Gemini extraction agent over the document
   text, parses the typed graph, and **prunes any Fact whose verbatim_quote doesn't
   anchor** — so the graph leaving this lane always passes the Fact Gate.
-- **Persist**: `LedgerRepository.from_env()` writes to Supabase (nodes first to obtain
-  UUIDs, then edges; then `mark_ledger_complete`). `dry_run(graph)` builds the exact
-  `NodeCreate`/`EdgeCreate` rows with placeholder UUIDs for inspection without a DB.
+- **Persist (real flow)**: `service.build_and_persist_ledger(case_id)` →
+  `db_repository.LedgerWriteRepository.write_graph` writes via **asyncpg** (one
+  transaction: replace any prior graph, insert nodes capturing each generated UUID by
+  display `node_id`, then insert edges referencing those UUIDs), then
+  `mark_ledger_complete` atomically flips the flag. Idempotent (re-runs replace the
+  graph) and race-safe. Reuses the shared pool from `backend/ingestion/db.py`.
+- **Persist (standalone tool only)**: `LedgerRepository.from_env()` is the legacy
+  sync supabase-py path used by `build_demo --persist`; do not call it from
+  request/worker code. `dry_run(graph)` builds the exact `NodeCreate`/`EdgeCreate` rows
+  with placeholder UUIDs for inspection without a DB.
 - **Handoff**: `graph_to_evidence_ledger(graph)` projects Fact nodes into the
   `EvidenceLedger` shape the orchestration consumes — the seam to run the debate on a
   real graph instead of the mock evidence step.
