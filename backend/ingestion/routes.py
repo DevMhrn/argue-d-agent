@@ -142,3 +142,20 @@ async def finalize(
     service: IngestService = Depends(get_service),
 ) -> CaseRow:
     return await service.finalize_case(case_id)
+
+
+@router.post(
+    "/rebuild-ledger/{case_id}",
+    summary="Re-build the evidence ledger for a case (idempotent)",
+)
+async def rebuild_ledger(
+    case_id: UUID,
+    service: IngestService = Depends(get_service),
+):
+    """Enqueue a fresh ledger build — replaces the case's graph. Use after going
+    live, editing case info, or adding documents to an already-built case."""
+    try:
+        job_id = await service.rebuild_ledger(case_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "case_id": str(case_id), "job_id": job_id}

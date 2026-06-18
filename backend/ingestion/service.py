@@ -142,6 +142,15 @@ class IngestService:
             CaseStatusUpdate(ingestion_complete=True),
         )
 
+    async def rebuild_ledger(self, case_id: UUID) -> str:
+        """Force a fresh ledger build for a case. Use after switching to live mode,
+        after editing case info, or to pick up newly added documents. Idempotent —
+        the build replaces the case's nodes/edges. Returns the enqueued arq job id."""
+        case = await self._repo.get_case(case_id)
+        if case is None:
+            raise LookupError(f"Case {case_id} not found")
+        return await self._queue.enqueue_build_ledger(case_id)
+
     # ----- per-document flow --------------------------------------------------
 
     async def prepare_upload(
@@ -274,11 +283,19 @@ class IngestService:
                     ingested_at=datetime.now(timezone.utc),
                 ),
             )
-            # Race-safe auto-finalize: only flips when all docs in the case are
-            # extracted. The single worker that wins the flip hands the case off
-            # to the ledger lane (enqueued by name; no ledger import here).
+            # Hand off to the ledger lane (enqueued by name; no ledger import here).
+            # Two trigger cases:
+            #   1. The race-safe auto-finalize flips ingestion_complete the first
+            #      time every doc is extracted → initial ledger build.
+            #   2. A doc added to a case whose ledger was ALREADY built (ledger_complete)
+            #      → rebuild so the graph reflects the new evidence. The build is
+            #      idempotent (it replaces the case's nodes/edges), so this is safe.
             if await self._repo.maybe_finalize_ingestion(doc.case_id):
                 await self._queue.enqueue_build_ledger(doc.case_id)
+            else:
+                case = await self._repo.get_case(doc.case_id)
+                if case is not None and case.ledger_complete:
+                    await self._queue.enqueue_build_ledger(doc.case_id)
             return updated
 
         except Exception as e:  # noqa: BLE001
