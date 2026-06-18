@@ -54,6 +54,10 @@ class ExtractionQueue:
     """
 
     JOB_NAME = "extract_document"
+    # Hand-off job to the ledger lane. Must match run_ledger_build.__name__ in
+    # backend/ledger/jobs.py — arq routes by function name. Enqueued by name only,
+    # so this lane never imports ledger code (keeps the lane boundary clean).
+    LEDGER_JOB_NAME = "run_ledger_build"
 
     def __init__(self, config: Optional[QueueConfig] = None) -> None:
         self._config = config or QueueConfig.from_env()
@@ -74,6 +78,17 @@ class ExtractionQueue:
         if job is None:
             raise RuntimeError(
                 f"Failed to enqueue {self.JOB_NAME}({document_id}) — arq returned None."
+            )
+        return job.job_id
+
+    async def enqueue_build_ledger(self, case_id: UUID) -> str:
+        """Queue a ledger-build job for a case whose ingestion just completed.
+        Routed by name to the worker's run_ledger_build function. Returns the job id."""
+        pool = await self._get_pool()
+        job = await pool.enqueue_job(self.LEDGER_JOB_NAME, str(case_id))
+        if job is None:
+            raise RuntimeError(
+                f"Failed to enqueue {self.LEDGER_JOB_NAME}({case_id}) — arq returned None."
             )
         return job.job_id
 

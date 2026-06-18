@@ -21,6 +21,10 @@ from .repository import IngestionRepository
 from .service import IngestService
 from .storage import ObjectStorage
 
+# The worker process is the composition root — it is allowed to wire both lanes.
+# The ledger build runs here too (enqueued by the ingestion service on finalize).
+from backend.ledger.jobs import run_ledger_build
+
 log = logging.getLogger("lumen.ingestion.worker")
 
 
@@ -85,7 +89,7 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """arq's WorkerSettings — discovered by `arq backend.ingestion.worker.WorkerSettings`."""
 
-    functions = [extract_document]
+    functions = [extract_document, run_ledger_build]
     on_startup = on_startup
     on_shutdown = on_shutdown
     redis_settings = redis_settings_from_env()

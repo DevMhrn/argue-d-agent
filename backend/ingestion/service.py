@@ -274,8 +274,11 @@ class IngestService:
                     ingested_at=datetime.now(timezone.utc),
                 ),
             )
-            # Race-safe auto-finalize: only flips when all docs in the case are extracted.
-            await self._repo.maybe_finalize_ingestion(doc.case_id)
+            # Race-safe auto-finalize: only flips when all docs in the case are
+            # extracted. The single worker that wins the flip hands the case off
+            # to the ledger lane (enqueued by name; no ledger import here).
+            if await self._repo.maybe_finalize_ingestion(doc.case_id):
+                await self._queue.enqueue_build_ledger(doc.case_id)
             return updated
 
         except Exception as e:  # noqa: BLE001
