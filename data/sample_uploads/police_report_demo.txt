@@ -1,0 +1,55 @@
+CALIFORNIA TRAFFIC COLLISION REPORT
+Report Number: SF-2026-04417
+Investigating Agency: San Francisco Police Department, Traffic Division
+Date of Collision: March 14, 2026          Time: 08:42 hours
+Location: Intersection of Folsom Street and 7th Street, San Francisco, CA
+
+PARTIES
+Party 1 (Insured / our claimant): Maria Rivera, operating a 2023 Toyota Camry,
+  license 8XYZ123, traveling northbound on 7th Street.
+Party 2 (Other driver): Daniel Blake, operating a 2021 Ford F-150,
+  license 6ABC789, traveling eastbound on Folsom Street.
+
+NARRATIVE
+At approximately 08:42, Party 1 (Rivera) entered the intersection of 7th Street
+and Folsom Street while facing a steady green signal in the northbound direction.
+Party 2 (Blake) entered the same intersection traveling eastbound against a steady
+red signal and struck the front passenger side of Party 1's vehicle.
+
+Independent witness Karen Osei, standing at the northwest corner, stated: "The
+silver car had the green. The pickup blew through the red, going maybe 50." The
+posted speed limit on Folsom Street at this location is 35 mph. Signal timing
+records obtained from the SFMTA confirm the northbound 7th Street approach held a
+green indication at the time of impact.
+
+CITATION
+Party 2 (Daniel Blake) was cited at the scene under California Vehicle Code
+section 21453(a) for failing to stop at a steady red signal. No citation was
+issued to Party 1.
+
+VEHICLE DAMAGE
+Party 1 (Toyota Camry): heavy damage to the front passenger side door, quarter
+panel, and wheel assembly; airbags deployed. Vehicle towed from scene.
+Party 2 (Ford F-150): moderate front-end damage to the bumper and grille.
+
+INJURIES
+Party 1 reported neck and shoulder pain and was evaluated by paramedics at the
+scene. No injuries reported by Party 2.
+
+OFFICER ASSESSMENT
+Based on the physical evidence, the witness statement, the signal timing records,
+and the citation issued, the primary cause of this collision was Party 2's entry
+into the intersection against a red signal in violation of CVC 21453(a).
+Reporting Officer: J. Tan, Badge 4471.
+
+----------------------------------------------------------------------
+
+REPAIR ESTIMATE (attached)
+Shop: Mission Auto Body, San Francisco, CA
+Vehicle: 2023 Toyota Camry (Party 1)
+  Front passenger door replacement ............ $1,850
+  Quarter panel repair and refinish ........... $2,400
+  Wheel and suspension assembly ............... $3,100
+  Airbag module replacement ................... $2,650
+  Paint, materials, and labor ................. $1,600
+  TOTAL DOCUMENTED DAMAGES .................... $11,600
