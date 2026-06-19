@@ -20,6 +20,7 @@ arq>=0.26             # Redis-backed async job queue (queue.py + worker.py)
 # ---- Ingestion lane: per-format text extractors -----------------------------
 pdfplumber>=0.11      # native PDF extraction (extractors/pdf.py)
 python-docx>=1.1      # DOCX extraction (extractors/docx.py)
+python-calamine>=0.2  # XLSX extraction (extractors/excel.py)
 beautifulsoup4>=4.12  # HTML extraction (extractors/html.py)
 
 # ---- Ledger lane: graph persistence -----------------------------------------

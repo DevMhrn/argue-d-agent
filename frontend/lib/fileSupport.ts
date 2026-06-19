@@ -54,6 +54,29 @@ export const SUPPORTED_MIME_TYPES: ReadonlySet<string> = new Set([
 export const SUPPORTED_FILES_LABEL =
   "PDF · DOCX · Excel · CSV · HTML · Markdown · plain text · images · audio";
 
+export const SUPPORTED_FILE_ACCEPT = [
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  ".csv",
+  ".tsv",
+  ".html",
+  ".htm",
+  ".txt",
+  ".md",
+  ".mp3",
+  ".m4a",
+  ".mp4",
+  ".wav",
+  ".webm",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ...SUPPORTED_MIME_TYPES,
+].join(",");
+
 export function classify(mime: string): FileCategory | null {
   if (DOCUMENT_MIME.has(mime)) return "document";
   if (IMAGE_MIME.has(mime)) return "image";
@@ -81,6 +104,11 @@ export interface ValidationContext {
   existingCountsByCategory?: Partial<Record<FileCategory, number>>;
   /** Files just queued client-side in the same batch, grouped by category. */
   pendingCountsByCategory?: Partial<Record<FileCategory, number>>;
+}
+
+export interface LocalEvidenceFile {
+  file: File;
+  stage?: string;
 }
 
 export function partitionSupportedFiles(
@@ -169,4 +197,23 @@ export function mimeOf(file: File): string {
       gif: "image/gif",
     }[extension ?? ""] ?? "application/octet-stream"
   );
+}
+
+export function countLocalFilesByCategory(
+  files: LocalEvidenceFile[],
+): Partial<Record<FileCategory, number>> {
+  const counts: Partial<Record<FileCategory, number>> = {};
+  for (const item of files) {
+    addLocalFileToCounts(counts, item);
+  }
+  return counts;
+}
+
+function addLocalFileToCounts(
+  counts: Partial<Record<FileCategory, number>>,
+  item: LocalEvidenceFile,
+) {
+  if (item.stage === "failed") return;
+  const cat = classify(mimeOf(item.file));
+  if (cat) counts[cat] = (counts[cat] ?? 0) + 1;
 }

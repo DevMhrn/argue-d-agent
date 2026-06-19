@@ -69,7 +69,7 @@ export function RoomTranscript({
       top: feedRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [postings.length]);
+  });
 
   return (
     <div ref={feedRef} className="flex-1 overflow-auto p-5">

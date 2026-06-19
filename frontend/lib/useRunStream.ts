@@ -8,7 +8,7 @@
  * final decision when the `result` event lands. Designed to be the single
  * source of truth for the case-detail panels.
  */
-import { useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { DecisionResult, RoomPosting } from "./types";
 
 export type RunState = {
@@ -147,7 +147,7 @@ export function useRunStream() {
   const [state, dispatch] = useReducer(reducer, initial);
   const sourceRef = useRef<EventSource | null>(null);
 
-  const start = (caseId: string) => {
+  const start = useCallback((caseId: string) => {
     // Tear down any previous stream first.
     sourceRef.current?.close();
     dispatch({ type: "start", caseId });
@@ -210,13 +210,13 @@ export function useRunStream() {
       src.close();
       sourceRef.current = null;
     };
-  };
+  }, []);
 
-  const stop = () => {
+  const stop = useCallback(() => {
     sourceRef.current?.close();
     sourceRef.current = null;
     dispatch({ type: "reset" });
-  };
+  }, []);
 
   /**
    * Hydrate the hook with a previously persisted run (postings + optional
@@ -230,25 +230,28 @@ export function useRunStream() {
    * stream mid-debate (and the backend's CancelledError handler would mark the
    * fresh run as "failed (client disconnected)" — the bug this guards against).
    */
-  const seed = (input: {
-    caseId: string;
-    runId?: string | null;
-    postings: RoomPosting[];
-    decision: DecisionResult | null;
-    letter?: string;
-    status?: "complete" | "streaming" | "error";
-  }) => {
-    if (sourceRef.current) return;
-    dispatch({
-      type: "seed",
-      caseId: input.caseId,
-      runId: input.runId,
-      postings: input.postings,
-      decision: input.decision,
-      letter: input.letter ?? input.decision?.letter ?? "",
-      status: input.status ?? (input.decision ? "complete" : "streaming"),
-    });
-  };
+  const seed = useCallback(
+    (input: {
+      caseId: string;
+      runId?: string | null;
+      postings: RoomPosting[];
+      decision: DecisionResult | null;
+      letter?: string;
+      status?: "complete" | "streaming" | "error";
+    }) => {
+      if (sourceRef.current) return;
+      dispatch({
+        type: "seed",
+        caseId: input.caseId,
+        runId: input.runId,
+        postings: input.postings,
+        decision: input.decision,
+        letter: input.letter ?? input.decision?.letter ?? "",
+        status: input.status ?? (input.decision ? "complete" : "streaming"),
+      });
+    },
+    [],
+  );
 
   // Tear down on unmount.
   useEffect(() => {

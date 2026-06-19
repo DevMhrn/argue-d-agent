@@ -101,7 +101,10 @@ def _sniff(text: str):
 
 
 def _read_rows(text: str, dialect) -> list[list[str]]:
-    return [list(row) for row in csv.reader(io.StringIO(text), dialect=dialect)]
+    return [
+        list(row)
+        for row in csv.reader(io.StringIO(text, newline=""), dialect=dialect)
+    ]
 
 
 def _render(rows: list[list[str]], filename: str) -> str:

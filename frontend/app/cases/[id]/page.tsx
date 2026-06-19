@@ -46,7 +46,8 @@ export default function CaseDetailPage({ params }: PageProps) {
   const [data, setData] = useState<CaseDetailResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
-  const { state, start, seed } = useRunStream();
+  const [runReplaySuspended, setRunReplaySuspended] = useState(false);
+  const { state, start, stop, seed } = useRunStream();
   const shouldPollForLedger = shouldPollCaseDetail(data);
 
   useEffect(() => {
@@ -69,14 +70,14 @@ export default function CaseDetailPage({ params }: PageProps) {
       setData(result.data);
     }
 
-    const timer = window.setInterval(() => {
+    const timer = globalThis.setInterval(() => {
       void refresh();
     }, LEDGER_READY_POLL_MS);
     void refresh();
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      globalThis.clearInterval(timer);
     };
   }, [id, shouldPollForLedger]);
 
@@ -91,11 +92,8 @@ export default function CaseDetailPage({ params }: PageProps) {
         const { runs } = await listRunsForCase(data.case.id);
         if (cancelled) return;
         setRunHistory(runs);
-        if (runs.length === 0) return;
-        const latest = runs[0].run;
-        // Only seed for terminal runs — a still-running one would conflict
-        // with a live SSE if the user immediately clicks "Open the room".
-        if (latest.status === "running") return;
+        const latest = replayableLatestRun(runs, runReplaySuspended);
+        if (!latest) return;
         const replay = await getRunReplay(latest.id);
         if (cancelled) return;
         seed({
@@ -120,10 +118,24 @@ export default function CaseDetailPage({ params }: PageProps) {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, runReplaySuspended, seed]);
 
   const handleRun = () => {
+    setRunReplaySuspended(false);
     start(id);
+  };
+
+  async function refreshCaseDetail() {
+    const result = await loadCaseDetail(id);
+    if (!result.error && result.data) setData(result.data);
+  }
+
+  const handleDocumentsChanged = () => {
+    setRunReplaySuspended(true);
+    void refreshCaseDetail();
+    if (state.status !== "connecting" && state.status !== "streaming") {
+      stop();
+    }
   };
 
   if (loadError) {
@@ -162,6 +174,7 @@ export default function CaseDetailPage({ params }: PageProps) {
       run={state}
       caseId={id}
       runHistory={runHistory}
+      onDocumentsChanged={handleDocumentsChanged}
     />
   );
 }
@@ -176,6 +189,15 @@ function shouldPollCaseDetail(data: CaseDetailResponse | null): boolean {
 
 function replayStatus(status: RunHistoryEntry["run"]["status"]) {
   return status === "failed" ? "error" : "complete";
+}
+
+function replayableLatestRun(
+  runs: RunHistoryEntry[],
+  replaySuspended: boolean,
+): RunHistoryEntry["run"] | null {
+  if (replaySuspended || runs.length === 0) return null;
+  const latest = runs[0].run;
+  return latest.status === "running" ? null : latest;
 }
 
 interface CaseLoadResult {
@@ -260,12 +282,14 @@ function DbCaseView({
   run,
   caseId,
   runHistory,
+  onDocumentsChanged,
 }: {
   data: DbCaseResponse;
   onRun: () => void;
   run: ReturnType<typeof useRunStream>["state"];
   caseId: string;
   runHistory: RunHistoryEntry[];
+  onDocumentsChanged: () => void;
 }) {
   const c = data.case as DbCase;
   const room = dbRoomState(c);
@@ -274,7 +298,13 @@ function DbCaseView({
     <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
       <DbCaseHeader caseRow={c} />
       <DbGateRail postings={run.postings} canRun={room.canRun} />
-      <DbCaseBody data={data} run={run} room={room} onRun={onRun} />
+      <DbCaseBody
+        data={data}
+        run={run}
+        room={room}
+        onRun={onRun}
+        onDocumentsChanged={onDocumentsChanged}
+      />
       <DbDecision caseId={caseId} run={run} />
       <RunHistoryStrip history={runHistory} />
     </div>
@@ -448,18 +478,24 @@ function DbCaseBody({
   run,
   room,
   onRun,
+  onDocumentsChanged,
 }: {
   data: DbCaseResponse;
   run: ReturnType<typeof useRunStream>["state"];
   room: DbRoomState;
   onRun: () => void;
+  onDocumentsChanged: () => void;
 }) {
   const c = data.case as DbCase;
 
   return (
     <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex h-full max-h-[85vh] min-h-0 flex-col gap-4 overflow-hidden">
-        <DocumentsPanel caseUuid={c.id} initialDocuments={data.documents} />
+        <DocumentsPanel
+          caseUuid={c.id}
+          initialDocuments={data.documents}
+          onDocumentsChanged={onDocumentsChanged}
+        />
         <LedgerGraphPanel
           hasLedger={data.has_ledger}
           nodes={data.nodes}

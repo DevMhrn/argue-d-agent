@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { LIMITS } from "@/lib/fileSupport";
+import { LIMITS, SUPPORTED_FILE_ACCEPT } from "@/lib/fileSupport";
 
 interface Props {
   disabled?: boolean;
@@ -71,10 +71,7 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         type="file"
         multiple
         hidden
-        accept={
-          accept ??
-          ".pdf,.docx,.xlsx,.csv,.tsv,.html,.htm,.txt,.md,.mp3,.m4a,.mp4,.wav,.webm,.jpg,.jpeg,.png,.webp,.gif,application/pdf,text/csv"
-        }
+        accept={accept ?? SUPPORTED_FILE_ACCEPT}
         onChange={(e) => handle(e.target.files)}
       />
     </div>
