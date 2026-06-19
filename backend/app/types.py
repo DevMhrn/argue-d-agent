@@ -4,9 +4,9 @@ Validation here is the same guarantee the zod schemas give the Node side: a mode
 that returns the wrong shape is rejected and retried.
 """
 from __future__ import annotations
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Fact(BaseModel):
@@ -52,7 +52,25 @@ class Intake(BaseModel):
     parties: Parties
     date: str
     location: str
-    damagesUsd: float
+    # Agents are explicitly allowed to return null when damages aren't in the
+    # uploaded documents — that's the "'not in evidence' is allowed and
+    # rewarded" rule. The validator coerces common LLM sentinels (literal
+    # strings like "not in evidence" / "unknown" / "") to None so a schema
+    # crash never punishes correct refusal-to-hallucinate behavior. The
+    # pipeline falls back to claim.damagesUsd (the case-level figure) for
+    # display + the fault-math, so a null here is non-fatal.
+    damagesUsd: Optional[float] = None
+
+    @field_validator("damagesUsd", mode="before")
+    @classmethod
+    def _coerce_sentinel(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            cleaned = v.strip().lower()
+            if cleaned in {"", "not in evidence", "unknown", "n/a", "na", "null", "none"}:
+                return None
+        return v
 
 
 class Point(BaseModel):

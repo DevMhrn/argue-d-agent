@@ -221,8 +221,11 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
 
     # 1) Intake
     intake = Intake.model_validate(_safe_json(await _ask(AGENTS["intake"], f"CLAIM DOCUMENTS:\n{docs_text}", "intake")))
+    # Display the agent's extracted figure when present, otherwise fall back to
+    # the case-level damages (the authoritative number for fault math anyway).
+    intake_damages_display = intake.damagesUsd if intake.damagesUsd is not None else claim.damagesUsd
     await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
-                    f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake.damagesUsd)}")
+                    f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake_damages_display)}")
 
     # 2) Evidence ledger — three sources, in priority order:
     #    (a) a ledger passed in (real cases: loaded from the graph the ledger lane
