@@ -21,6 +21,8 @@ from .verifier import collect_verifier_tasks, summarize_alignment, VerifierTask
 from .ledger import valid_citation_ids, render_ledger, render_statutes
 from .mock_responses import set_mock_case
 from .room import Room
+from .courtroom import CourtIssue, build_courtroom_plan, render_docket, render_issue_context
+from .orchestration_tools import LedgerLookupTool
 from ..ledger.builder import build_ledger, graph_to_evidence_ledger
 from .types import (
     ClaimInput, Statute, Point, Points, Rebuttal, Decision, FinalDecision,
@@ -73,6 +75,69 @@ def _usd(n: float) -> str:
     return f"${int(round(n)):,}"
 
 
+def _citations_from_points(points: list[Point]) -> list[str]:
+    return sorted({citation for point in points for citation in point.citations})
+
+
+def _citations_from_rebuttal(rebuttal: Rebuttal) -> list[str]:
+    return sorted({citation for item in rebuttal.responses for citation in item.citations})
+
+
+def _metadata(
+    *,
+    phase: str,
+    actor_key: str | None = None,
+    turn_type: str | None = None,
+    issue: CourtIssue | None = None,
+    target_actor_key: str | None = None,
+    citations: list[str] | None = None,
+    gate: dict[str, object] | None = None,
+    tool: dict[str, object] | None = None,
+) -> dict[str, object]:
+    data: dict[str, object] = {"phase": phase}
+    if actor_key is not None:
+        data["actor_key"] = actor_key
+    if turn_type is not None:
+        data["turn_type"] = turn_type
+    if issue is not None:
+        data["issue_key"] = issue.key
+        data["issue_title"] = issue.title
+    if target_actor_key is not None:
+        data["target_actor_key"] = target_actor_key
+    if citations:
+        data["citations"] = citations
+    if gate is not None:
+        data["gate"] = gate
+    if tool is not None:
+        data["tool"] = tool
+    return data
+
+
+def _with_citations(metadata: dict[str, object] | None, citations: list[str]) -> dict[str, object]:
+    out = dict(metadata or {})
+    if citations:
+        out["citations"] = citations
+    return out
+
+
+def _hearing_issues(plan) -> list[CourtIssue]:
+    fact_issues = [issue for issue in plan.issues if issue.fact_ids]
+    preferred = [issue for issue in fact_issues if issue.key in ("primary_liability", "comparative_fault")]
+    return (preferred or fact_issues)[:2]
+
+
+def _issue_citation_ids(issue: CourtIssue) -> set[str]:
+    return {*issue.fact_ids, *issue.statute_ids}
+
+
+def _decision_outcome(reasons: list[str], pursue: bool) -> str:
+    if not pursue:
+        return "decline"
+    if reasons:
+        return "escalate"
+    return "pursue"
+
+
 async def _ask(agent: AgentDef, user: str, mock_key: str) -> str:
     return await chat(provider=agent.provider, model=agent.model, system=agent.system, user=user, mock_key=mock_key, json=True)
 
@@ -89,7 +154,25 @@ async def _working(room: Room, agent: AgentDef, action: str) -> None:
         await asyncio.sleep(_THINK_FLOOR_S)
 
 
-async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> list[Point]:
+# Per-agent "doing X" phrase for the live activity beat, used by _produce_points /
+# _produce_rebuttal so every step of the courtroom flow shows a beat (incl. each
+# issue's cross-exam / redirect), not just the top-level phases.
+_AGENT_ACTION: dict[str, str] = {
+    "advocate": "is arguing the recovery case",
+    "opposing": "is pressing the opposing-carrier theory",
+}
+
+
+async def _produce_points(
+    agent: AgentDef,
+    room: Room,
+    user: str,
+    mock_key_base: str,
+    valid_ids: set[str],
+    metadata: dict[str, object] | None = None,
+    safety_reasons: list[str] | None = None,
+) -> list[Point]:
+    await _working(room, agent, _AGENT_ACTION.get(agent.key, "is reviewing the evidence"))
     last_violations: list[str] = []
     last_parse_error: str | None = None
     for attempt in (1, 2):
@@ -111,31 +194,84 @@ async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base:
             parsed = Points.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
         except Exception as e:
             last_parse_error = str(e)
-            await room.post(CITE_GATE, 196, "gate",
-                            f"REJECTED {agent.name} (attempt {attempt}): unparseable response ({type(e).__name__})")
+            await room.post(
+                CITE_GATE,
+                196,
+                "gate",
+                f"REJECTED {agent.name} (attempt {attempt}): unparseable response ({type(e).__name__})",
+                metadata=_metadata(
+                    phase=str((metadata or {}).get("phase", "citation_gate")),
+                    actor_key="citation_gate",
+                    target_actor_key=agent.key,
+                    gate={"name": CITE_GATE, "verdict": "rejected", "attempt": attempt, "reason": "unparseable"},
+                ),
+            )
             if attempt == 2:
                 # Bail with empty points rather than crashing the run. The
                 # downstream consensus/escalation path will surface this as an
                 # information-gap escalation, not a hard failure.
-                await room.post(agent.name, agent.color, "message",
-                                "(no parseable points — surfaced for human review)")
+                if safety_reasons is not None:
+                    safety_reasons.append(f"{agent.name} returned no parseable points after retry")
+                await room.post(
+                    agent.name,
+                    agent.color,
+                    "message",
+                    "(no parseable points - surfaced for human review)",
+                    metadata=metadata,
+                )
                 return []
             continue
 
         last_parse_error = None
         gate = check_points(parsed.points, valid_ids)
         if gate.ok:
-            await room.post(agent.name, agent.color, "message", _fmt(parsed.points))
+            await room.post(
+                agent.name,
+                agent.color,
+                "message",
+                _fmt(parsed.points),
+                metadata=_with_citations(metadata, _citations_from_points(parsed.points)),
+            )
             return parsed.points
         last_violations = gate.violations
-        await room.post(CITE_GATE, 196, "gate", f"REJECTED {agent.name} (attempt {attempt}):\n   - " + "\n   - ".join(gate.violations))
+        await room.post(
+            CITE_GATE,
+            196,
+            "gate",
+            f"REJECTED {agent.name} (attempt {attempt}):\n   - " + "\n   - ".join(gate.violations),
+            metadata=_metadata(
+                phase=str((metadata or {}).get("phase", "citation_gate")),
+                actor_key="citation_gate",
+                target_actor_key=agent.key,
+                gate={"name": CITE_GATE, "verdict": "rejected", "attempt": attempt, "violations": gate.violations},
+            ),
+        )
         if attempt == 2:
-            await room.post(agent.name, agent.color, "message", _fmt(parsed.points) + "\n   (⚠ unresolved gate violations)")
+            if safety_reasons is not None:
+                safety_reasons.append(
+                    f"{CITE_GATE} rejected {agent.name} after retry: " + "; ".join(gate.violations)
+                )
+            await room.post(
+                agent.name,
+                agent.color,
+                "message",
+                _fmt(parsed.points) + "\n   (unresolved gate violations)",
+                metadata=_with_citations(metadata, _citations_from_points(parsed.points)),
+            )
             return parsed.points
     return []
 
 
-async def _produce_rebuttal(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> Rebuttal:
+async def _produce_rebuttal(
+    agent: AgentDef,
+    room: Room,
+    user: str,
+    mock_key_base: str,
+    valid_ids: set[str],
+    metadata: dict[str, object] | None = None,
+    safety_reasons: list[str] | None = None,
+) -> Rebuttal:
+    await _working(room, agent, _AGENT_ACTION.get(agent.key, "is responding on redirect"))
     last_violations: list[str] = []
     last_parse_error: str | None = None
     for attempt in (1, 2):
@@ -158,24 +294,71 @@ async def _produce_rebuttal(agent: AgentDef, room: Room, user: str, mock_key_bas
             parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
         except Exception as e:
             last_parse_error = str(e)
-            await room.post(CITE_GATE, 196, "gate",
-                            f"REJECTED {agent.name} (attempt {attempt}): unparseable rebuttal ({type(e).__name__})")
+            await room.post(
+                CITE_GATE,
+                196,
+                "gate",
+                f"REJECTED {agent.name} (attempt {attempt}): unparseable rebuttal ({type(e).__name__})",
+                metadata=_metadata(
+                    phase=str((metadata or {}).get("phase", "citation_gate")),
+                    actor_key="citation_gate",
+                    target_actor_key=agent.key,
+                    gate={"name": CITE_GATE, "verdict": "rejected", "attempt": attempt, "reason": "unparseable"},
+                ),
+            )
             if attempt == 2:
                 # Empty rebuttal rather than killing the run.
                 empty = Rebuttal(responses=[])
-                await room.post(agent.name, agent.color, "message",
-                                "(no parseable rebuttal — surfaced for human review)")
+                if safety_reasons is not None:
+                    safety_reasons.append(f"{agent.name} returned no parseable rebuttal after retry")
+                await room.post(
+                    agent.name,
+                    agent.color,
+                    "message",
+                    "(no parseable rebuttal - surfaced for human review)",
+                    metadata=metadata,
+                )
                 return empty
             continue
 
         last_parse_error = None
         as_points = [Point(claim=r.claim, citations=r.citations) for r in parsed.responses]
         gate = check_points(as_points, valid_ids)
-        if gate.ok or attempt == 2:
-            await room.post(agent.name, agent.color, "message", _fmt_rebuttal(parsed))
+        if gate.ok:
+            await room.post(
+                agent.name,
+                agent.color,
+                "message",
+                _fmt_rebuttal(parsed),
+                metadata=_with_citations(metadata, _citations_from_rebuttal(parsed)),
+            )
             return parsed
         last_violations = gate.violations
-        await room.post(CITE_GATE, 196, "gate", f"REJECTED {agent.name} (attempt {attempt}):\n   - " + "\n   - ".join(gate.violations))
+        await room.post(
+            CITE_GATE,
+            196,
+            "gate",
+            f"REJECTED {agent.name} (attempt {attempt}):\n   - " + "\n   - ".join(gate.violations),
+            metadata=_metadata(
+                phase=str((metadata or {}).get("phase", "citation_gate")),
+                actor_key="citation_gate",
+                target_actor_key=agent.key,
+                gate={"name": CITE_GATE, "verdict": "rejected", "attempt": attempt, "violations": gate.violations},
+            ),
+        )
+        if attempt == 2:
+            if safety_reasons is not None:
+                safety_reasons.append(
+                    f"{CITE_GATE} rejected {agent.name} redirect after retry: " + "; ".join(gate.violations)
+                )
+            await room.post(
+                agent.name,
+                agent.color,
+                "message",
+                _fmt_rebuttal(parsed) + "\n   (unresolved gate violations)",
+                metadata=_with_citations(metadata, _citations_from_rebuttal(parsed)),
+            )
+            return parsed
     return Rebuttal(responses=[])
 
 
@@ -326,9 +509,16 @@ def _reconcile_letter(letter: str, decision: FinalDecision) -> list[str]:
 async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledger: EvidenceLedger | None = None) -> LumenResult:
     # Select this case's canned outputs for mock mode (no-op in live mode).
     set_mock_case(claim.caseId)
+    safety_reasons: list[str] = []
     docs_text = "\n\n".join(f"### {d.name} ({d.kind})\n{d.text}" for d in claim.documents)
 
-    await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
+    await room.post(
+        SYS,
+        250,
+        "system",
+        f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.",
+        metadata=_metadata(phase="docket", actor_key="court_clerk", turn_type="open"),
+    )
 
     # 1) Intake — combines main's enriched prompt + _parse_intake helper with
     # HEAD's retry-on-parse-failure. main's helper handles schema-shape errors
@@ -356,9 +546,18 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
             break
         except Exception as e:  # noqa: BLE001
             if attempt == 2:
-                await room.post(SYS, 196, "gate",
-                                f"Intake agent failed to return parseable JSON after retry ({type(e).__name__}). "
-                                f"Falling back to case-level metadata.")
+                await room.post(
+                    SYS,
+                    196,
+                    "gate",
+                    f"Intake agent failed to return parseable JSON after retry ({type(e).__name__}). "
+                    f"Falling back to case-level metadata.",
+                    metadata=_metadata(
+                        phase="intake",
+                        actor_key="intake",
+                        gate={"name": "Intake Parse", "verdict": "warning", "error": type(e).__name__},
+                    ),
+                )
                 intake = Intake(
                     parties=Intake.Parties(insured=claim.insured, otherParty=claim.otherParty),
                     date="not in evidence",
@@ -367,9 +566,21 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
                 )
     # Display the agent's extracted figure when present, otherwise fall back to
     # the case-level damages (the authoritative number for fault math anyway).
+    if intake is None:
+        intake = Intake(
+            parties=Intake.Parties(insured=claim.insured, otherParty=claim.otherParty),
+            date="not in evidence",
+            location="not in evidence",
+            damagesUsd=claim.damagesUsd,
+        )
     intake_damages_display = intake.damagesUsd if intake.damagesUsd is not None else claim.damagesUsd
-    await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
-                    f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake_damages_display)}")
+    await room.post(
+        AGENTS["intake"].name,
+        AGENTS["intake"].color,
+        "message",
+        f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake_damages_display)}",
+        metadata=_metadata(phase="intake", actor_key="intake", turn_type="case_summary"),
+    )
 
     # 2) Evidence ledger — three sources, in priority order:
     #    (a) a ledger passed in (real cases: loaded from the graph the ledger lane
@@ -378,51 +589,159 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     #    (c) the inline evidence agent when the lane is disabled.
     await _working(room, AGENTS["evidence"], "is assembling the grounded evidence ledger")
     if ledger is not None:
-        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
-                        f"Evidence ledger loaded from the persisted graph — {len(ledger.facts)} facts:\n" +
-                        "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+        await room.post(
+            AGENTS["evidence"].name,
+            AGENTS["evidence"].color,
+            "message",
+            f"Evidence ledger loaded from the persisted graph - {len(ledger.facts)} facts:\n" +
+            "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts),
+            metadata=_metadata(phase="evidence", actor_key="evidence", turn_type="ledger_loaded"),
+        )
     elif USE_LEDGER_LANE:
         graph = await build_ledger(claim, statutes)
         ledger = graph_to_evidence_ledger(graph)
-        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
-                        f"Evidence-ledger graph built — {len(graph.nodes)} nodes, {len(graph.edges)} edges → {len(ledger.facts)} facts:\n" +
-                        "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+        await room.post(
+            AGENTS["evidence"].name,
+            AGENTS["evidence"].color,
+            "message",
+            f"Evidence-ledger graph built - {len(graph.nodes)} nodes, {len(graph.edges)} edges -> {len(ledger.facts)} facts:\n" +
+            "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts),
+            metadata=_metadata(phase="evidence", actor_key="evidence", turn_type="ledger_built"),
+        )
     else:
         ledger = EvidenceLedger.model_validate(_safe_json(await _ask(AGENTS["evidence"], f"Build the evidence ledger from:\n{docs_text}", "ledger")))
-        await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
-                        f"Evidence Ledger — {len(ledger.facts)} facts:\n" + "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts))
+        await room.post(
+            AGENTS["evidence"].name,
+            AGENTS["evidence"].color,
+            "message",
+            f"Evidence Ledger - {len(ledger.facts)} facts:\n" + "\n".join(f"   [{f.id}] {f.statement}  ({f.source})" for f in ledger.facts),
+            metadata=_metadata(phase="evidence", actor_key="evidence", turn_type="ledger_built"),
+        )
 
     # 2b) Fact Gate
     fact_check = check_ledger_anchoring(ledger, claim)
     if fact_check.ok:
-        await room.post(FACT_GATE, 46, "gate", f"All {len(ledger.facts)} facts anchored to verbatim source quotes.")
+        await room.post(
+            FACT_GATE,
+            46,
+            "gate",
+            f"All {len(ledger.facts)} facts anchored to verbatim source quotes.",
+            metadata=_metadata(phase="fact_gate", actor_key="fact_gate", gate={"name": FACT_GATE, "verdict": "passed"}),
+        )
     else:
-        await room.post(FACT_GATE, 196, "gate", f"REJECTED {len(fact_check.violations)} fact(s):\n   - " + "\n   - ".join(fact_check.violations))
+        safety_reasons.append(f"{FACT_GATE} rejected {len(fact_check.violations)} fact(s)")
+        await room.post(
+            FACT_GATE,
+            196,
+            "gate",
+            f"REJECTED {len(fact_check.violations)} fact(s):\n   - " + "\n   - ".join(fact_check.violations),
+            metadata=_metadata(phase="fact_gate", actor_key="fact_gate", gate={"name": FACT_GATE, "verdict": "rejected", "violations": fact_check.violations}),
+        )
 
-    await room.post(SYS, 250, "handoff", "Ledger locked. RULE NOW ACTIVE: every argument must cite a fact id or statute id, or the Citation Gate rejects it.")
+    await room.post(
+        SYS,
+        250,
+        "handoff",
+        "Ledger locked. RULE NOW ACTIVE: every argument must cite a fact id or statute id, or the Citation Gate rejects it.",
+        metadata=_metadata(phase="ledger_lock", actor_key="court_clerk", turn_type="handoff"),
+    )
 
     valid_ids = valid_citation_ids(ledger, statutes)
     context = f"EVIDENCE LEDGER:\n{render_ledger(ledger)}\n\nSTATUTES:\n{render_statutes(statutes)}"
 
-    # 3) Advocate opens (independent)
-    await _working(room, AGENTS["advocate"], "is building the opening case for recovery")
-    advocate_points = await _produce_points(AGENTS["advocate"], room, f"{context}\n\nMake your strongest opening case that the other driver is at fault.", "advocate_position", valid_ids)
-    # 4) Opposing independent theory
-    await _working(room, AGENTS["opposing"], "is building its own theory of shared fault")
-    opposing_theory = await _produce_points(AGENTS["opposing"], room, f"{context}\n\nIndependently build your own theory of how OUR insured shares fault. Do not respond to anyone yet.", "opposing_independent", valid_ids)
-    # 5) Opposing attacks advocate
-    await _working(room, AGENTS["opposing"], "is attacking the advocate's points")
-    attack_points = await _produce_points(AGENTS["opposing"], room, f"{context}\n\nThe Advocate argued:\n{_fmt(advocate_points)}\n\nAttack each of these points.", "opposing_attack", valid_ids)
-    # 6) Advocate rebuts/concedes
-    await _working(room, AGENTS["advocate"], "is rebutting the opposing carrier")
-    rebuttal = await _produce_rebuttal(AGENTS["advocate"], room, f"{context}\n\nThe opposing carrier attacked:\n{_fmt(attack_points)}\n\nRebut or concede each. Concede ONLY with a citation.", "advocate_rebuttal", valid_ids)
+    plan = build_courtroom_plan(ledger, statutes)
+    tools = LedgerLookupTool(ledger, statutes)
+    await room.post(
+        SYS,
+        250,
+        "system",
+        render_docket(plan),
+        metadata=_metadata(phase="docket", actor_key="court_clerk", turn_type="docket", tool={"name": "build_courtroom_plan", "issues": [i.key for i in plan.issues]}),
+    )
 
-    await room.post(SYS, 250, "handoff", "Debate closed — no consensus round. Neutral Adjudicator now decides from the transcript.")
+    # 3) Opening briefs.
+    advocate_points = await _produce_points(
+        AGENTS["advocate"],
+        room,
+        f"{context}\n\nAs recovery counsel, make your strongest opening brief that the other driver is at fault.",
+        "advocate_position",
+        valid_ids,
+        metadata=_metadata(phase="opening_briefs", actor_key="advocate", turn_type="opening_brief"),
+        safety_reasons=safety_reasons,
+    )
+    opposing_theory = await _produce_points(
+        AGENTS["opposing"],
+        room,
+        f"{context}\n\nAs defense counsel, independently build your opening brief for how OUR insured shares fault. Do not respond to recovery counsel yet.",
+        "opposing_independent",
+        valid_ids,
+        metadata=_metadata(phase="opening_briefs", actor_key="opposing", turn_type="opening_brief"),
+        safety_reasons=safety_reasons,
+    )
+
+    # 4) Issue-level hearing: cross-exam and redirect on bounded issue packets.
+    attack_points: list[Point] = []
+    rebuttal_items = []
+    for issue in _hearing_issues(plan):
+        issue_valid_ids = _issue_citation_ids(issue)
+        issue_context = render_issue_context(issue, ledger, statutes)
+        lookup_results = tools.search_ledger(issue.question, limit=3)
+        if not lookup_results:
+            lookup_results = [result for fact_id in issue.fact_ids if (result := tools.get_node(fact_id))]
+        await room.post(
+            SYS,
+            250,
+            "handoff",
+            f"Hearing issue: {issue.title}. Court Clerk limits counsel to this issue packet.",
+            metadata=_metadata(phase="issue_hearing", actor_key="court_clerk", turn_type="call_issue", issue=issue),
+        )
+        await room.post(
+            SYS,
+            250,
+            "system",
+            "Tool search_ledger returned: " + ", ".join(f"[{r.id}]" for r in lookup_results),
+            metadata=_metadata(
+                phase="tool_use",
+                actor_key="court_clerk",
+                turn_type="tool_result",
+                issue=issue,
+                tool={"name": "search_ledger", "query": issue.question, "result_ids": [r.id for r in lookup_results]},
+            ),
+        )
+        issue_attacks = await _produce_points(
+            AGENTS["opposing"],
+            room,
+            f"{issue_context}\n\nRecovery counsel's opening brief:\n{_fmt(advocate_points)}\n\nDefense opening brief:\n{_fmt(opposing_theory)}\n\nCross-examine recovery counsel on this single issue. Attack only with citations from the packet.",
+            f"opposing_cross_{issue.key}",
+            issue_valid_ids,
+            metadata=_metadata(phase="cross_examination", actor_key="opposing", turn_type="cross", issue=issue, target_actor_key="advocate"),
+            safety_reasons=safety_reasons,
+        )
+        attack_points.extend(issue_attacks)
+        issue_rebuttal = await _produce_rebuttal(
+            AGENTS["advocate"],
+            room,
+            f"{issue_context}\n\nDefense cross-examined:\n{_fmt(issue_attacks)}\n\nRedirect on this single issue. Rebut or concede each point. Concede ONLY with a citation.",
+            f"advocate_redirect_{issue.key}",
+            issue_valid_ids,
+            metadata=_metadata(phase="redirect", actor_key="advocate", turn_type="redirect", issue=issue, target_actor_key="opposing"),
+            safety_reasons=safety_reasons,
+        )
+        rebuttal_items.extend(issue_rebuttal.responses)
+    rebuttal = Rebuttal(responses=rebuttal_items)
+
+    await room.post(
+        SYS,
+        250,
+        "handoff",
+        "Hearing closed. No settlement round. Neutral adjudicators now decide from the issue record.",
+        metadata=_metadata(phase="adjudication", actor_key="court_clerk", turn_type="close_hearing"),
+    )
 
     # 7) Dual adjudicator (independent, different model families, in parallel)
     transcript = (
         f"Advocate opening:\n{_fmt(advocate_points)}\n\nOpposing independent theory:\n{_fmt(opposing_theory)}\n\n"
-        f"Opposing attacks:\n{_fmt(attack_points)}\n\nAdvocate rebuttal:\n{_fmt_rebuttal(rebuttal)}"
+        f"Issue cross-examination:\n{_fmt(attack_points)}\n\nAdvocate redirect:\n{_fmt_rebuttal(rebuttal)}"
     )
     adj_prompt = f"{context}\n\nDEBATE TRANSCRIPT:\n{transcript}\n\nDecide the other driver's fault %."
     await _working(room, AGENTS["adjudicator"], "and Adjudicator B are weighing the evidence (independently, in parallel)")
@@ -474,23 +793,69 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
                     dec_b, math_b = retry_dec, retry_math
 
     if dec_a:
-        await room.post(AGENTS["adjudicator"].name, AGENTS["adjudicator"].color, "decision",
-                        f"Other driver {dec_a.otherDriverFaultPct}% at fault (confidence {dec_a.confidence}).\n   Basis: {dec_a.reasoning}")
+        await room.post(
+            AGENTS["adjudicator"].name,
+            AGENTS["adjudicator"].color,
+            "decision",
+            f"Other driver {dec_a.otherDriverFaultPct}% at fault (confidence {dec_a.confidence}).\n   Basis: {dec_a.reasoning}",
+            metadata=_metadata(phase="adjudication", actor_key="adjudicator", turn_type="decision"),
+        )
         if math_a and math_a.ok:
-            await room.post(MATH_GATE, 46, "gate", f"A ✓ table implies {math_a.computed_pct}%, stated {math_a.stated_pct}% (delta {math_a.delta}pp).")
+            await room.post(
+                MATH_GATE,
+                46,
+                "gate",
+                f"A passed: table implies {math_a.computed_pct}%, stated {math_a.stated_pct}% (delta {math_a.delta}pp).",
+                metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator", gate={"name": MATH_GATE, "verdict": "passed", "computed_pct": math_a.computed_pct, "stated_pct": math_a.stated_pct, "delta": math_a.delta}),
+            )
         elif math_a:
-            await room.post(MATH_GATE, 196, "gate", f"A REJECTED — {math_a.violation}")
+            await room.post(
+                MATH_GATE,
+                196,
+                "gate",
+                f"A REJECTED - {math_a.violation}",
+                metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator", gate={"name": MATH_GATE, "verdict": "rejected", "violation": math_a.violation, "delta": math_a.delta}),
+            )
     else:
-        await room.post(MATH_GATE, 196, "gate", "Adjudicator A failed to return a parseable decision.")
+        await room.post(
+            MATH_GATE,
+            196,
+            "gate",
+            "Adjudicator A failed to return a parseable decision.",
+            metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator", gate={"name": MATH_GATE, "verdict": "rejected", "violation": "unparseable"}),
+        )
     if dec_b:
-        await room.post(AGENTS["adjudicator_b"].name, AGENTS["adjudicator_b"].color, "decision",
-                        f"Other driver {dec_b.otherDriverFaultPct}% at fault (confidence {dec_b.confidence}).\n   Basis: {dec_b.reasoning}")
+        await room.post(
+            AGENTS["adjudicator_b"].name,
+            AGENTS["adjudicator_b"].color,
+            "decision",
+            f"Other driver {dec_b.otherDriverFaultPct}% at fault (confidence {dec_b.confidence}).\n   Basis: {dec_b.reasoning}",
+            metadata=_metadata(phase="adjudication", actor_key="adjudicator_b", turn_type="decision"),
+        )
         if math_b and math_b.ok:
-            await room.post(MATH_GATE, 46, "gate", f"B ✓ table implies {math_b.computed_pct}%, stated {math_b.stated_pct}% (delta {math_b.delta}pp).")
+            await room.post(
+                MATH_GATE,
+                46,
+                "gate",
+                f"B passed: table implies {math_b.computed_pct}%, stated {math_b.stated_pct}% (delta {math_b.delta}pp).",
+                metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator_b", gate={"name": MATH_GATE, "verdict": "passed", "computed_pct": math_b.computed_pct, "stated_pct": math_b.stated_pct, "delta": math_b.delta}),
+            )
         elif math_b:
-            await room.post(MATH_GATE, 196, "gate", f"B REJECTED — {math_b.violation}")
+            await room.post(
+                MATH_GATE,
+                196,
+                "gate",
+                f"B REJECTED - {math_b.violation}",
+                metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator_b", gate={"name": MATH_GATE, "verdict": "rejected", "violation": math_b.violation, "delta": math_b.delta}),
+            )
     else:
-        await room.post(MATH_GATE, 196, "gate", "Adjudicator B failed to return a parseable decision.")
+        await room.post(
+            MATH_GATE,
+            196,
+            "gate",
+            "Adjudicator B failed to return a parseable decision.",
+            metadata=_metadata(phase="math_gate", actor_key="math_gate", target_actor_key="adjudicator_b", gate={"name": MATH_GATE, "verdict": "rejected", "violation": "unparseable"}),
+        )
 
     # 7c) Consensus — with graceful degradation when both adjudicators failed math.
     both_math_failed = (
@@ -517,10 +882,29 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
             ),
         })
         consensus = ConsensusResult(canonical, None, "single", 0)
-        await room.post(CONSENSUS_GATE, 196, "gate",
-                        f"BOTH adjudicators failed math gate after retry (A delta {math_a.delta}pp, "
-                        f"B delta {math_b.delta}pp). Using Adjudicator {best_slot} (smaller delta "
-                        f"{best_delta}pp) at HALF confidence ({canonical.confidence:.2f}). Forcing human escalation.")
+        safety_reasons.append(
+            f"both adjudicators failed math gate (A delta {math_a.delta}pp, B delta {math_b.delta}pp)"
+        )
+        await room.post(
+            CONSENSUS_GATE,
+            196,
+            "gate",
+            f"BOTH adjudicators failed math gate after retry (A delta {math_a.delta}pp, "
+            f"B delta {math_b.delta}pp). Using Adjudicator {best_slot} (smaller delta "
+            f"{best_delta}pp) at HALF confidence ({canonical.confidence:.2f}). Forcing human escalation.",
+            metadata=_metadata(
+                phase="consensus_gate",
+                actor_key="consensus_gate",
+                gate={
+                    "name": CONSENSUS_GATE,
+                    "verdict": "rejected",
+                    "consensus_type": "single",
+                    "best_slot": best_slot,
+                    "best_delta": best_delta,
+                    "worst_delta": worst_delta,
+                },
+            ),
+        )
     elif consensus is None:
         # Both adjudicators failed to even return a parseable decision (not a math
         # gate issue — they returned no usable JSON at all). This is the only path
@@ -531,20 +915,42 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     else:
         canonical = consensus.canonical
         if consensus.consensus_type == "agreement":
-            await room.post(CONSENSUS_GATE, 46, "gate",
-                            f"Adjudicators converged — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp ≤ {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.")
+            await room.post(
+                CONSENSUS_GATE,
+                46,
+                "gate",
+                f"Adjudicators converged - A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp <= {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.",
+                metadata=_metadata(phase="consensus_gate", actor_key="consensus_gate", gate={"name": CONSENSUS_GATE, "verdict": "passed", "consensus_type": consensus.consensus_type, "delta": consensus.consensus_delta}),
+            )
         elif consensus.consensus_type == "disagreement":
-            await room.post(CONSENSUS_GATE, 196, "gate",
-                            f"DISAGREEMENT — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.")
+            await room.post(
+                CONSENSUS_GATE,
+                196,
+                "gate",
+                f"DISAGREEMENT - A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.",
+                metadata=_metadata(phase="consensus_gate", actor_key="consensus_gate", gate={"name": CONSENSUS_GATE, "verdict": "rejected", "consensus_type": consensus.consensus_type, "delta": consensus.consensus_delta}),
+            )
         elif consensus.consensus_type == "single":
             which = "A" if (dec_a and math_a and math_a.ok) else "B"
-            await room.post(CONSENSUS_GATE, 214, "gate", f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.")
+            await room.post(
+                CONSENSUS_GATE,
+                214,
+                "gate",
+                f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.",
+                metadata=_metadata(phase="consensus_gate", actor_key="consensus_gate", gate={"name": CONSENSUS_GATE, "verdict": "warning", "consensus_type": consensus.consensus_type, "delta": consensus.consensus_delta}),
+            )
 
     # 7d) Source-Alignment Verifier
     verifier_tasks = collect_verifier_tasks(advocate_points, opposing_theory, attack_points, rebuttal)
     verifier_contradicted = 0
     if not verifier_tasks:
-        await room.post(ALIGN_GATE, 214, "gate", "No fact citations in transcript — nothing to align.")
+        await room.post(
+            ALIGN_GATE,
+            214,
+            "gate",
+            "No fact citations in transcript - nothing to align.",
+            metadata=_metadata(phase="source_alignment", actor_key="verifier", gate={"name": ALIGN_GATE, "verdict": "warning", "reason": "no_fact_citations"}),
+        )
     else:
         await _working(room, AGENTS["verifier"], "is auditing every cited claim against its source fact")
         verifier_result = await _run_verifier(verifier_tasks, context)
@@ -553,20 +959,26 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
             verifier_contradicted = s.contradicted
             head = f"{s.supported}/{s.total} supported, {s.overreach} overreach, {s.contradicted} contradicted."
             if s.contradicted == 0 and s.overreach == 0:
-                await room.post(ALIGN_GATE, 46, "gate", head)
+                await room.post(ALIGN_GATE, 46, "gate", head, metadata=_metadata(phase="source_alignment", actor_key="verifier", gate={"name": ALIGN_GATE, "verdict": "passed", "supported": s.supported, "overreach": s.overreach, "contradicted": s.contradicted}))
             elif s.contradicted == 0:
-                lines = "\n".join(f"   - overreach [{r.citationId}]: \"{_truncate(r.claim)}\" — {r.reasoning}" for r in s.overreach_details)
-                await room.post(ALIGN_GATE, 214, "gate", f"{head}\n{lines}")
+                lines = "\n".join(f"   - overreach [{r.citationId}]: \"{_truncate(r.claim)}\" - {r.reasoning}" for r in s.overreach_details)
+                await room.post(ALIGN_GATE, 214, "gate", f"{head}\n{lines}", metadata=_metadata(phase="source_alignment", actor_key="verifier", gate={"name": ALIGN_GATE, "verdict": "warning", "supported": s.supported, "overreach": s.overreach, "contradicted": s.contradicted}))
             else:
-                lines = "\n".join(f"   - CONTRADICTED [{r.citationId}]: \"{_truncate(r.claim)}\" — {r.reasoning}" for r in s.contradicted_details)
-                await room.post(ALIGN_GATE, 196, "gate", f"{head}\n{lines}")
+                lines = "\n".join(f"   - CONTRADICTED [{r.citationId}]: \"{_truncate(r.claim)}\" - {r.reasoning}" for r in s.contradicted_details)
+                await room.post(ALIGN_GATE, 196, "gate", f"{head}\n{lines}", metadata=_metadata(phase="source_alignment", actor_key="verifier", gate={"name": ALIGN_GATE, "verdict": "rejected", "supported": s.supported, "overreach": s.overreach, "contradicted": s.contradicted}))
         else:
-            await room.post(ALIGN_GATE, 214, "gate", "Verifier unavailable; skipping semantic alignment check.")
+            await room.post(
+                ALIGN_GATE,
+                214,
+                "gate",
+                "Verifier unavailable; skipping semantic alignment check.",
+                metadata=_metadata(phase="source_alignment", actor_key="verifier", gate={"name": ALIGN_GATE, "verdict": "warning", "reason": "unavailable"}),
+            )
 
     # escalation
     recovery_usd = round((claim.damagesUsd * canonical.otherDriverFaultPct) / 100)
     near_5050 = abs(50 - canonical.otherDriverFaultPct) < 10
-    reasons: list[str] = []
+    reasons: list[str] = list(safety_reasons)
     if recovery_usd >= ESCALATE_USD:
         reasons.append(f"recovery {_usd(recovery_usd)} ≥ {_usd(ESCALATE_USD)} threshold")
     if canonical.confidence < 0.6:
@@ -595,11 +1007,6 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
         if canonical.otherDriverFaultPct < PURSUE_MIN_FAULT_PCT:
             bits.append(f"other-driver fault {canonical.otherDriverFaultPct}% below the {int(PURSUE_MIN_FAULT_PCT)}% viability floor")
         decline_reason = "; ".join(bits)
-        outcome = "decline"
-    elif reasons:
-        outcome = "escalate"
-    else:
-        outcome = "pursue"
 
     final = FinalDecision(
         **canonical.model_dump(),
@@ -610,15 +1017,10 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
         secondary=consensus.secondary,
         consensus=consensus.consensus_type,
         consensusDelta=consensus.consensus_delta,
-        outcome=outcome,
+        outcome=_decision_outcome(reasons, pursue),
         pursue=pursue,
         declineReason=decline_reason,
     )
-
-    if outcome == "decline":
-        await room.post(SYS, 196, "decision", f"RECOMMENDATION: DO NOT PURSUE — {decline_reason}. Recommend closing the file.")
-    elif final.escalate:
-        await room.post(SYS, 196, "decision", f"ESCALATED TO HUMAN ADJUSTER — {'; '.join(reasons)}. Awaiting Approve/Reject.")
 
     # 8) Demand letter — with retry + deterministic fallback. The Drafter is
     # the last LLM call (step 8/8) so a network blip here loses 60+s of work.
@@ -635,17 +1037,69 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
             letter = None
         except Exception as e:  # noqa: BLE001
             if attempt == 2:
-                await room.post(LETTER_GATE, 214, "gate",
-                                f"Drafter call failed ({type(e).__name__}); using template fallback so the packet is still produced.")
+                await room.post(
+                    LETTER_GATE,
+                    214,
+                    "gate",
+                    f"Drafter call failed ({type(e).__name__}); using template fallback so the packet is still produced.",
+                    metadata=_metadata(
+                        phase="letter_gate",
+                        actor_key="letter_gate",
+                        gate={"name": LETTER_GATE, "verdict": "warning", "reason": f"drafter_{type(e).__name__}"},
+                    ),
+                )
     if not letter:
         letter = _fallback_letter(claim, canonical, recovery_usd, ledger)
-    await room.post(AGENTS["drafter"].name, AGENTS["drafter"].color, "message", "Drafted the formal subrogation demand letter (full text in output).")
+    await room.post(
+        AGENTS["drafter"].name,
+        AGENTS["drafter"].color,
+        "message",
+        "Drafted the formal subrogation demand letter (full text in output).",
+        metadata=_metadata(phase="drafting", actor_key="drafter", turn_type="demand_letter"),
+    )
 
     # 8b) Letter reconciliation
     issues = _reconcile_letter(letter, final)
     if not issues:
-        await room.post(LETTER_GATE, 46, "gate", f"Letter matches the adjudicator's {canonical.otherDriverFaultPct}% / {_usd(recovery_usd)}.")
+        await room.post(
+            LETTER_GATE,
+            46,
+            "gate",
+            f"Letter matches the adjudicator's {canonical.otherDriverFaultPct}% / {_usd(recovery_usd)}.",
+            metadata=_metadata(phase="letter_gate", actor_key="letter_gate", gate={"name": LETTER_GATE, "verdict": "passed"}),
+        )
     else:
-        await room.post(LETTER_GATE, 196, "gate", "FAILED:\n   - " + "\n   - ".join(issues))
+        reasons.append(f"{LETTER_GATE} failed: " + "; ".join(issues))
+        final = final.model_copy(
+            update={
+                "escalate": True,
+                "escalateReasons": reasons,
+                "outcome": "escalate",
+            }
+        )
+        await room.post(
+            LETTER_GATE,
+            196,
+            "gate",
+            "FAILED:\n   - " + "\n   - ".join(issues),
+            metadata=_metadata(phase="letter_gate", actor_key="letter_gate", gate={"name": LETTER_GATE, "verdict": "rejected", "violations": issues}),
+        )
+
+    if final.outcome == "decline":
+        await room.post(
+            SYS,
+            196,
+            "decision",
+            f"RECOMMENDATION: DO NOT PURSUE - {decline_reason}. Recommend closing the file.",
+            metadata=_metadata(phase="disposition", actor_key="court_clerk", turn_type="disposition", gate={"name": "Viability", "verdict": "decline", "reason": decline_reason or ""}),
+        )
+    elif final.escalate:
+        await room.post(
+            SYS,
+            196,
+            "decision",
+            f"ESCALATED TO HUMAN ADJUSTER - {'; '.join(reasons)}. Awaiting Approve/Reject.",
+            metadata=_metadata(phase="disposition", actor_key="court_clerk", turn_type="disposition", gate={"name": "Human Review", "verdict": "escalated", "reasons": reasons}),
+        )
 
     return LumenResult(intake=intake, ledger=ledger, decision=final, letter=letter)

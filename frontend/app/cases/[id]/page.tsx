@@ -47,7 +47,8 @@ export default function CaseDetailPage({ params }: PageProps) {
   const [data, setData] = useState<CaseDetailResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
-  const { state, start, seed } = useRunStream();
+  const [runReplaySuspended, setRunReplaySuspended] = useState(false);
+  const { state, start, stop, seed } = useRunStream();
   // Bumped after a document is added so the status stream reopens and the
   // rebuild on an already-complete case animates live.
   const [streamReopenKey, setStreamReopenKey] = useState(0);
@@ -93,14 +94,14 @@ export default function CaseDetailPage({ params }: PageProps) {
       setData(result.data);
     }
 
-    const timer = window.setInterval(() => {
+    const timer = globalThis.setInterval(() => {
       void refresh();
     }, LEDGER_READY_POLL_MS);
     void refresh();
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      globalThis.clearInterval(timer);
     };
   }, [id, shouldPollForLedger]);
 
@@ -115,20 +116,20 @@ export default function CaseDetailPage({ params }: PageProps) {
         const { runs } = await listRunsForCase(data.case.id);
         if (cancelled) return;
         setRunHistory(runs);
-        if (runs.length === 0) return;
-        const latest = runs[0].run;
-        // Only seed for terminal runs — a still-running one would conflict
-        // with a live SSE if the user immediately clicks "Open the room".
-        if (latest.status === "running") return;
+        const latest = replayableLatestRun(runs, runReplaySuspended);
+        if (!latest) return;
         const replay = await getRunReplay(latest.id);
         if (cancelled) return;
         seed({
           caseId: data.case.case_id,
+          runId: latest.id,
           postings: replay.postings.map((p) => ({
+            seq: p.seq,
             agent: p.agent,
             color: `c${p.color}`, // RoomPosting.color is a string token
             kind: p.kind,
             content: p.content,
+            metadata: p.metadata,
             at: new Date(p.posted_at).getTime(),
           })),
           decision: decisionFromPersisted(replay.decision),
@@ -141,10 +142,28 @@ export default function CaseDetailPage({ params }: PageProps) {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, runReplaySuspended, seed]);
 
   const handleRun = () => {
+    setRunReplaySuspended(false);
     start(id);
+  };
+
+  async function refreshCaseDetail() {
+    const result = await loadCaseDetail(id);
+    if (!result.error && result.data) setData(result.data);
+  }
+
+  const handleDocumentsChanged = () => {
+    setRunReplaySuspended(true);
+    void refreshCaseDetail();
+    // Reopen the case-status stream so a ledger rebuild triggered by the new
+    // document animates live (build progress + node/edge counts) rather than
+    // only surfacing on the next poll.
+    setStreamReopenKey((k) => k + 1);
+    if (state.status !== "connecting" && state.status !== "streaming") {
+      stop();
+    }
   };
 
   if (loadError) {
@@ -184,7 +203,7 @@ export default function CaseDetailPage({ params }: PageProps) {
       caseId={id}
       runHistory={runHistory}
       live={live}
-      onDocumentAdded={() => setStreamReopenKey((k) => k + 1)}
+      onDocumentsChanged={handleDocumentsChanged}
     />
   );
 }
@@ -199,6 +218,15 @@ function shouldPollCaseDetail(data: CaseDetailResponse | null): boolean {
 
 function replayStatus(status: RunHistoryEntry["run"]["status"]) {
   return status === "failed" ? "error" : "complete";
+}
+
+function replayableLatestRun(
+  runs: RunHistoryEntry[],
+  replaySuspended: boolean,
+): RunHistoryEntry["run"] | null {
+  if (replaySuspended || runs.length === 0) return null;
+  const latest = runs[0].run;
+  return latest.status === "running" ? null : latest;
 }
 
 interface CaseLoadResult {
@@ -285,7 +313,7 @@ function DbCaseView({
   caseId,
   runHistory,
   live,
-  onDocumentAdded,
+  onDocumentsChanged,
 }: {
   data: DbCaseResponse;
   onRun: () => void;
@@ -293,7 +321,7 @@ function DbCaseView({
   caseId: string;
   runHistory: RunHistoryEntry[];
   live: CaseStatusEvent | null;
-  onDocumentAdded: () => void;
+  onDocumentsChanged: () => void;
 }) {
   const c = data.case as DbCase;
   const room = dbRoomState(c);
@@ -308,7 +336,7 @@ function DbCaseView({
         room={room}
         onRun={onRun}
         live={live}
-        onDocumentAdded={onDocumentAdded}
+        onDocumentsChanged={onDocumentsChanged}
       />
       <DbDecision caseId={caseId} run={run} />
       <RunHistoryStrip history={runHistory} />
@@ -484,14 +512,14 @@ function DbCaseBody({
   room,
   onRun,
   live,
-  onDocumentAdded,
+  onDocumentsChanged,
 }: {
   data: DbCaseResponse;
   run: ReturnType<typeof useRunStream>["state"];
   room: DbRoomState;
   onRun: () => void;
   live: CaseStatusEvent | null;
-  onDocumentAdded: () => void;
+  onDocumentsChanged: () => void;
 }) {
   const c = data.case as DbCase;
 
@@ -501,7 +529,7 @@ function DbCaseBody({
         <DocumentsPanel
           caseUuid={c.id}
           initialDocuments={data.documents}
-          onDocumentAdded={onDocumentAdded}
+          onDocumentsChanged={onDocumentsChanged}
         />
         <LedgerGraphPanel
           hasLedger={data.has_ledger}
@@ -517,6 +545,8 @@ function DbCaseBody({
         status={run.status}
         postings={run.postings}
         bandRoomId={run.bandRoomId}
+        activeRunId={run.activeRunId}
+        lastSeq={run.lastSeq}
         canRun={room.canRun}
         lockedReason={room.lockedReason}
         onRun={onRun}

@@ -33,9 +33,9 @@ import { useCaseUpload } from "@/lib/useCaseUpload";
 interface Props {
   caseUuid: string;
   initialDocuments: DocumentRow[];
-  /** Called after a document is committed — lets the parent reopen the
-   *  case-status stream so a rebuild on an already-complete case animates live. */
-  onDocumentAdded?: () => void;
+  /** Fired when documents change (committed / status advanced) — lets the parent
+   *  refresh and reopen the case-status stream so a rebuild animates live. */
+  onDocumentsChanged?: () => void;
 }
 
 const STATUS_TONE: Record<DocumentRow["status"], string> = {
@@ -54,6 +54,8 @@ const STATUS_LABEL: Record<DocumentRow["status"], string> = {
   failed: "Failed",
 };
 
+type PollTimer = ReturnType<typeof globalThis.setInterval>;
+
 function isTerminal(s: DocumentRow["status"]): boolean {
   return s === "extracted" || s === "failed";
 }
@@ -61,12 +63,12 @@ function isTerminal(s: DocumentRow["status"]): boolean {
 export function DocumentsPanel({
   caseUuid,
   initialDocuments,
-  onDocumentAdded,
+  onDocumentsChanged,
 }: Props) {
   const { docs, files, addFiles, rejectedNote, summary } = useDocumentsPanel({
     caseUuid,
     initialDocuments,
-    onDocumentAdded,
+    onDocumentsChanged,
   });
 
   return (
@@ -82,21 +84,26 @@ export function DocumentsPanel({
 function useDocumentsPanel({
   caseUuid,
   initialDocuments,
-  onDocumentAdded,
+  onDocumentsChanged,
 }: Props) {
   const [docs, setDocs] = useState<DocumentRow[]>(initialDocuments);
   const [rejectedNote, setRejectedNote] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const intervalRef = useRef<number | null>(null);
+  const intervalRef = useRef<PollTimer | null>(null);
+  const docsSignatureRef = useRef(documentsSignature(initialDocuments));
+  const onDocumentsChangedRef =
+    useRef<Props["onDocumentsChanged"]>(onDocumentsChanged);
+
+  useEffect(() => {
+    onDocumentsChangedRef.current = onDocumentsChanged;
+  }, [onDocumentsChanged]);
 
   function onCommitted() {
     // After a successful commit, force a quick refresh so the new doc lands
     // in the server-side list within ~150 ms (rather than waiting for the
-    // next 1.5 s tick).
+    // next 1.5 s tick). The parent is notified via onDocumentsChanged when the
+    // refreshed document set actually changes (see applyServerDocuments).
     setRefreshNonce((n) => n + 1);
-    // Let the parent reopen the case-status stream so the ledger rebuild
-    // triggered by this new document animates live.
-    onDocumentAdded?.();
   }
 
   function onRejected(rejected: FileRejection[]) {
@@ -104,7 +111,7 @@ function useDocumentsPanel({
       .map((r) => `${r.file.name} — ${r.message}`)
       .join("; ");
     setRejectedNote(`Can't ingest: ${list}`);
-    window.setTimeout(() => setRejectedNote(null), 6000);
+    globalThis.setTimeout(() => setRejectedNote(null), 6000);
   }
 
   const existingCountsByCategory = useMemo(
@@ -123,9 +130,13 @@ function useDocumentsPanel({
       try {
         const status = await getCaseStatus(caseUuid);
         if (cancelled) return;
-        setDocs(status.documents);
-        // Drop any local chips whose document is now visible on the server.
-        clearCommitted(new Set(status.documents.map((d) => d.id)));
+        applyServerDocuments(
+          status.documents,
+          setDocs,
+          clearCommitted,
+          docsSignatureRef,
+          onDocumentsChangedRef,
+        );
       } catch {
         // ignore transient poll failures
       }
@@ -142,8 +153,14 @@ function useDocumentsPanel({
       return;
     }
     if (intervalRef.current) return; // already polling
-    intervalRef.current = window.setInterval(() => {
-      void refreshDocuments(caseUuid, setDocs, clearCommitted);
+    intervalRef.current = globalThis.setInterval(() => {
+      void refreshDocuments(
+        caseUuid,
+        setDocs,
+        clearCommitted,
+        docsSignatureRef,
+        onDocumentsChangedRef,
+      );
     }, 1500);
     return () => {
       clearPollInterval(intervalRef);
@@ -153,7 +170,7 @@ function useDocumentsPanel({
   // Tear down on unmount.
   useEffect(() => {
     return () => {
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
+      if (intervalRef.current) globalThis.clearInterval(intervalRef.current);
     };
   }, []);
 
@@ -170,7 +187,7 @@ function useDocumentsPanel({
 }
 
 interface IntervalRef {
-  current: number | null;
+  current: PollTimer | null;
 }
 
 function shouldPollDocuments(
@@ -182,7 +199,7 @@ function shouldPollDocuments(
 
 function clearPollInterval(intervalRef: IntervalRef) {
   if (!intervalRef.current) return;
-  window.clearInterval(intervalRef.current);
+  globalThis.clearInterval(intervalRef.current);
   intervalRef.current = null;
 }
 
@@ -190,14 +207,51 @@ async function refreshDocuments(
   caseUuid: string,
   setDocs: (docs: DocumentRow[]) => void,
   clearCommitted: (knownIds: Set<string>) => void,
+  docsSignatureRef: { current: string },
+  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
 ) {
   try {
     const status = await getCaseStatus(caseUuid);
-    setDocs(status.documents);
-    clearCommitted(new Set(status.documents.map((doc) => doc.id)));
+    applyServerDocuments(
+      status.documents,
+      setDocs,
+      clearCommitted,
+      docsSignatureRef,
+      onDocumentsChangedRef,
+    );
   } catch {
     // ignore transient poll failures
   }
+}
+
+function applyServerDocuments(
+  documents: DocumentRow[],
+  setDocs: (docs: DocumentRow[]) => void,
+  clearCommitted: (knownIds: Set<string>) => void,
+  docsSignatureRef: { current: string },
+  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
+) {
+  setDocs(documents);
+  clearCommitted(new Set(documents.map((doc) => doc.id)));
+
+  const nextSignature = documentsSignature(documents);
+  if (nextSignature === docsSignatureRef.current) return;
+  docsSignatureRef.current = nextSignature;
+  onDocumentsChangedRef.current?.();
+}
+
+function documentsSignature(documents: DocumentRow[]): string {
+  return documents
+    .map((doc) =>
+      [
+        doc.id,
+        doc.status,
+        doc.page_count ?? "",
+        doc.retry_count,
+        doc.extraction_error ?? "",
+      ].join(":"),
+    )
+    .join("|");
 }
 
 interface DocumentsSummary {

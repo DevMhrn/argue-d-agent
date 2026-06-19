@@ -22,12 +22,12 @@ Open the frontend on port `3000`. The Next.js dev server proxies `/api/*` to the
 **Just the agent debate** (no ingestion, no frontend):
 
 ```bash
-pnpm install
-LUMEN_MOCK=1 pnpm demo                         # legacy Node demo, CLI only
-LUMEN_MOCK=1 .venv/bin/python -m backend.app.run_demo
+./run.sh demo
 ```
 
-You will see the room transcript: facts get extracted, the Advocate and the Opposing red team disagree, the Citation Gate rejects unsupported claims, neutral adjudicators set fault and recovery, and uncertain or high-value outcomes escalate to a human.
+You will see the courtroom transcript: the clerk opens a docket from the locked ledger, recovery counsel and defense counsel argue issue-by-issue, the Citation Gate rejects unsupported claims, neutral adjudicators set fault and recovery, and uncertain or high-value outcomes escalate to a human.
+
+Legacy root `pnpm demo` still exists under `src/`, but active work should use `./run.sh demo`.
 
 ## Current app flow
 

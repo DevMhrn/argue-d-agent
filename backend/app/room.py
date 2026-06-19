@@ -1,15 +1,14 @@
 """The coordination room.
 
 `Room` is the interface the pipeline talks to. `LocalRoom` is the in-process
-implementation (runs today, no Band needed). `BandRoom` posts every message into
-a REAL Band room through the official SDK so the coordination genuinely happens on
-Band — agents are real Band participants, handoffs are real @mention messages, and
-the transcript is the system of record.
+implementation (runs today, no Band needed). `BandRoom` mirrors real-agent
+messages into Band through the SDK. The database transcript remains Lumen's
+audit source of truth; Band is the live coordination surface.
 
 Persistence: an optional `persist` async callback (PostingSink) writes each
 Posting to the `transcript` table BEFORE the SSE callback fires. That ordering
 means a frontend reloading the page can replay the same sequence the live SSE
-saw — no consistency gap. Persistence failures raise; the orchestrator catches
+saw - no consistency gap. Persistence failures raise; the orchestrator catches
 them and marks the run status='failed' so we never end up with an ambiguous
 half-persisted run.
 
@@ -18,7 +17,7 @@ the UI. BandRoom does that AND sends to Band. Activate by filling band_config.ya
 """
 from __future__ import annotations
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Awaitable, Callable, Optional
 
 import yaml
@@ -33,6 +32,7 @@ class Posting:
     color: int
     kind: str  # message | handoff | gate | decision | system
     content: str
+    metadata: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,9 +55,16 @@ class Room:
         self.postings: list[Posting] = []
         self._seq = 0
 
-    async def post(self, agent: str, color: int, kind: str, content: str) -> Posting:
+    async def post(
+        self,
+        agent: str,
+        color: int,
+        kind: str,
+        content: str,
+        metadata: Optional[dict[str, object]] = None,
+    ) -> Posting:
         self._seq += 1
-        p = Posting(self._seq, agent, color, kind, content)
+        p = Posting(self._seq, agent, color, kind, content, metadata or {})
         self.postings.append(p)
         # Persist FIRST so a frontend reload sees the same sequence the SSE
         # callback is about to fire. If the DB write fails we propagate; the

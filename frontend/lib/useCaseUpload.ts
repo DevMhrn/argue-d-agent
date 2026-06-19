@@ -21,7 +21,7 @@ import { useCallback, useState } from "react";
 import type { LocalFile, LocalFileStage } from "@/components/FileRow";
 import { ApiError, commitUpload, signUpload, uploadToStorage } from "@/lib/api";
 import {
-  classify,
+  countLocalFilesByCategory,
   type FileCategory,
   type FileRejection,
   mimeOf,
@@ -74,7 +74,7 @@ export function useCaseUpload(
     async (picked: File[]): Promise<{ accepted: number; rejected: number }> => {
       // Enforce MIME + per-file size + per-case count caps before signing, so
       // users get instant feedback instead of a 400 after the upload PUT.
-      const pendingCountsByCategory = countByCategory(files);
+      const pendingCountsByCategory = countLocalFilesByCategory(files);
       const { accepted, rejected } = partitionSupportedFiles(picked, {
         existingCountsByCategory,
         pendingCountsByCategory,
@@ -179,19 +179,6 @@ function notifyRejected(
   onRejected: ((rejected: FileRejection[]) => void) | undefined,
 ) {
   if (rejected.length > 0) onRejected?.(rejected);
-}
-
-function countByCategory(
-  files: LocalFile[],
-): Partial<Record<FileCategory, number>> {
-  const counts: Partial<Record<FileCategory, number>> = {};
-  for (const f of files) {
-    if (f.stage === "failed") continue;
-    const cat = classify(mimeOf(f.file));
-    if (!cat) continue;
-    counts[cat] = (counts[cat] ?? 0) + 1;
-  }
-  return counts;
 }
 
 async function runQueuedUploads(

@@ -55,29 +55,33 @@ Real cases come from Supabase and are labeled with `source: "db"`. The staged fl
 6. Finalize ingestion with `POST /api/ingest/finalize/{case_id}` when needed.
 7. Wait for the ledger lane to write nodes/edges and set `ledger_complete=true`.
 8. Open the Argument Room once the ledger is locked.
-9. Stream a run with `GET /api/run/{case_id}`; real UUID runs persist `runs`, `transcript`, and `decisions`.
+9. Stream a courtroom run with `GET /api/run/{case_id}`; real UUID runs persist `runs`, structured `transcript` metadata, and `decisions`.
 10. Replay prior terminal runs with `GET /api/runs/{run_id}/transcript`; the detail page fetches run history with `GET /api/cases/{case_id}/runs` on mount.
 
 `frontend/lib/types.ts` mirrors backend Pydantic response shapes by hand. Update it whenever the FastAPI contract changes.
 
 ## Supported uploads
 
-The current v1 upload validation accepts:
+The current upload validation mirrors `backend/ingestion/limits.py` and accepts:
 
-- PDF
-- DOCX
-- HTML
-- plain text / Markdown
+- Documents: PDF, DOCX, Excel `.xlsx`, CSV/TSV, HTML, plain text, Markdown
+- Images: JPEG, PNG, WebP, GIF
+- Audio: MP3, MP4/M4A, WAV, WebM
 
-Images, audio, scanned PDFs, old `.doc`, spreadsheets, and video are roadmap items. Keep `frontend/lib/useCaseUpload.ts`, `/cases/new/page.tsx`, and `backend/ingestion/extractors/registry.py` in sync when supported MIME types change.
+Caps: documents are 10 MB and 50 files per case; images are 10 MB and 15 files; audio is 50 MB and 10 files. The backend is authoritative. Keep `frontend/lib/fileSupport.ts`, `backend/ingestion/limits.py`, and `backend/ingestion/extractors/registry.py` in sync when formats or caps change.
+
+Model-backed formats need their runtime prerequisites: image extraction uses Anthropic unless mock mode is active, audio transcription uses OpenAI and `ffmpeg` unless mock mode is active, and scanned-PDF OCR needs `ocrmypdf`, Tesseract, and Ghostscript. Old `.doc` and video are not v1 extractors.
 
 ## Checks
 
 ```bash
-pnpm lint
+pnpm exec tsc --noEmit
+pnpm exec biome check .
 pnpm build
 ```
 
-Run these inside `frontend/`. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.
+Run these inside `frontend/`. The current `pnpm lint` script is mutating because it runs `biome check --write --unsafe .`; use it only when you intend to apply formatting fixes. Active React handoff checks live in `frontend/AGENTS.md`. Repo-level Fallow is in `../AGENTS.md`.
 
-Repo-level Fallow and React Compiler checks are listed in [`../AGENTS.md`](../AGENTS.md#fallow-local-gate).
+## Browser smoke
+
+With the dev stack and required `.env` values running, smoke the current real-case flow by creating a case in `/cases/new`, uploading representative PDF and text evidence, waiting for extraction and `ledger_complete`, opening the Argument Room, and refreshing the detail page after a terminal run. Replay should load transcript items plus a persisted decision from run history.

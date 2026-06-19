@@ -144,21 +144,21 @@ function DecisionOutcome({
   isDecline: boolean;
 }) {
   return isDecline ? (
-    <DeclineDecision />
+    <DeclineDecision reason={decision.declineReason} />
   ) : (
     <RecoveryDecision decision={decision} />
   );
 }
 
-function DeclineDecision() {
+function DeclineDecision({ reason }: { reason?: string | null }) {
   return (
     <div className="rounded-pill border-2 border-bad/60 bg-bad/10 p-4 text-center">
       <div className="text-[12px] text-bad uppercase tracking-wider">
         Do Not Pursue
       </div>
       <p className="mt-2 text-[13px] text-muted">
-        Comparative-fault math does not justify a recovery demand. Recommend
-        closing the file.
+        {reason ||
+          "Comparative-fault math does not justify a recovery demand. Recommend closing the file."}
       </p>
     </div>
   );

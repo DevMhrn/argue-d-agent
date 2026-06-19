@@ -331,6 +331,10 @@ class IngestService:
                 # missing graph gets refreshed. Idempotent: it replaces the graph.
                 case = await self._repo.get_case(doc.case_id)
                 if case is not None and case.ingestion_complete:
+                    await self._repo.update_case_status(
+                        doc.case_id,
+                        CaseStatusUpdate(ledger_complete=False),
+                    )
                     job_id = await self._queue.enqueue_build_ledger(doc.case_id)
                     log.info("case %s already complete, doc added → ledger rebuild %s", doc.case_id, job_id)
                 else:

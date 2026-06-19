@@ -245,6 +245,7 @@ export interface DecisionSummary {
   recovery_usd: number;
   confidence: number;
   escalate: boolean;
+  outcome?: "pursue" | "escalate" | "decline";
   consensus_type: "agreement" | "disagreement" | "single" | "none";
   audit_hash: string | null;
 }
@@ -260,6 +261,7 @@ export interface PersistedPosting {
   color: number;
   kind: "message" | "handoff" | "gate" | "decision" | "system";
   content: string;
+  metadata?: PostingMetadata;
   posted_at: string;
 }
 
@@ -287,11 +289,35 @@ export type RoomKind =
   | "system"
   | "status";
 
+export interface PostingMetadata {
+  phase?: string;
+  actor_key?: string;
+  turn_type?: string;
+  issue_key?: string;
+  issue_title?: string;
+  target_actor_key?: string;
+  citations?: string[];
+  gate?: {
+    name?: string;
+    verdict?: "passed" | "rejected" | "warning" | "decline" | "escalated";
+    [key: string]: unknown;
+  };
+  tool?: {
+    name?: string;
+    query?: string;
+    result_ids?: string[];
+    issues?: string[];
+    [key: string]: unknown;
+  };
+}
+
 export interface RoomPosting {
+  seq?: number;
   agent: string;
-  color?: string;
+  color?: string | number;
   kind: RoomKind;
   content: string;
+  metadata?: PostingMetadata;
   at?: number;
 }
 
@@ -301,9 +327,15 @@ export interface DecisionResult {
   recoveryUsd: number;
   confidence: number;
   escalate: boolean;
+  pursue?: boolean;
+  declineReason?: string | null;
   consensus?: "agreement" | "disagreement" | "single" | "none";
   consensusDeltaPp?: number;
-  faultTable?: Array<{ factId: string; favors: "us" | "them"; weight: number }>;
+  faultTable?: Array<{
+    factId: string;
+    favors: "us" | "them" | "neutral";
+    weight: number;
+  }>;
   reasoning?: string;
   letter?: string;
   auditHash?: string;

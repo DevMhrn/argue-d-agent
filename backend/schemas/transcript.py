@@ -1,6 +1,6 @@
 """Pydantic models for the `transcript` table.
 
-Per-run record of Band-room postings. `run_id` is a foreign key into the
+Per-run record of room postings. `run_id` is a foreign key into the
 `runs` table (the orchestrator inserts a `runs` row at run start, then writes
 transcript rows referencing it). `(run_id, seq)` is the canonical ordering.
 A single case can have many runs; the UI typically shows the latest.
@@ -30,6 +30,7 @@ class TranscriptRow(BaseModel):
     color: int
     kind: PostingKind
     content: str
+    metadata: dict[str, object]
     posted_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -45,3 +46,4 @@ class TranscriptCreate(BaseModel):
     color: int
     kind: PostingKind
     content: str
+    metadata: dict[str, object] = Field(default_factory=dict)

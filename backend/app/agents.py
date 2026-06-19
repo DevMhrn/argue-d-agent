@@ -19,11 +19,10 @@ class AgentDef:
     color: int  # ANSI 256 for the CLI; the web UI maps by name
 
 
-# Provider assignment is deliberate, across two independent families (Claude + GPT):
-# the Advocate (Claude) debates the Opposing red team (GPT), and Adjudicator A (Claude)
-# is checked against Adjudicator B (GPT) — different families, so the consensus check is
-# truly independent. (Gemini is still a supported provider; to use it, set an agent's
-# provider to "gemini" + a Gemini model id once a GEMINI_API_KEY is available.)
+# Provider assignment is deliberate across two active families (Claude + GPT):
+# the Advocate (Claude) debates the Opposing red team (GPT), and Adjudicator A
+# (Claude) is checked against Adjudicator B (GPT). Gemini is only a configurable
+# provider slot unless an agent is explicitly reassigned to it.
 AGENTS: dict[str, AgentDef] = {
     "intake": AgentDef("intake", "Intake Parser", "Extract the incident facts from the claim", "openai", MODELS["intake"], P.INTAKE_PROMPT, 245),
     "evidence": AgentDef("evidence", "Evidence Aggregator", "Build the grounded Evidence Ledger", "openai", MODELS["evidence"], P.EVIDENCE_PROMPT, 109),

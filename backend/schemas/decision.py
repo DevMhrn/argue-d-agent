@@ -15,6 +15,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 ConsensusType = Literal["agreement", "disagreement", "single", "none"]
+DecisionOutcome = Literal["pursue", "escalate", "decline"]
 FaultFavors = Literal["us", "them", "neutral"]
 
 
@@ -43,6 +44,9 @@ class DecisionRow(BaseModel):
     recovery_usd: Decimal
     escalate: bool
     escalate_reasons: list[str]
+    outcome: DecisionOutcome
+    pursue: bool
+    decline_reason: Optional[str] = None
     near_fifty_fifty: bool
     consensus_type: ConsensusType
     consensus_delta: Decimal
@@ -66,6 +70,9 @@ class DecisionCreate(BaseModel):
     recovery_usd: Decimal
     escalate: bool
     escalate_reasons: list[str] = Field(default_factory=list)
+    outcome: DecisionOutcome = "pursue"
+    pursue: bool = True
+    decline_reason: Optional[str] = None
     near_fifty_fifty: bool
     consensus_type: ConsensusType
     consensus_delta: Decimal
