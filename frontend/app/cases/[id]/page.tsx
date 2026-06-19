@@ -18,6 +18,7 @@ import type {
   DemoCaseResponse,
   RunHistoryEntry,
 } from "@/lib/types";
+import { type CaseStatusEvent, useCaseStream } from "@/lib/useCaseStream";
 import { decisionFromPersisted, useRunStream } from "@/lib/useRunStream";
 
 const LEDGER_READY_POLL_MS = 3000;
@@ -47,6 +48,9 @@ export default function CaseDetailPage({ params }: PageProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const { state, start, seed } = useRunStream();
+  // Live case status (SSE) — pushes ingestion/ledger transitions + the ledger
+  // lane's build phase so the page advances without a manual refresh.
+  const live = useCaseStream(id, data?.source === "db");
   const shouldPollForLedger = shouldPollCaseDetail(data);
 
   useEffect(() => {
@@ -59,6 +63,23 @@ export default function CaseDetailPage({ params }: PageProps) {
     };
   }, [id]);
 
+  // SSE-driven refetch: whenever the live stream reports a change (a doc
+  // extracted, ledger build phase advanced, ledger_complete flipped), pull the
+  // authoritative full case (flags + nodes/edges). This is the primary path.
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+    void loadCaseDetail(id).then((result) => {
+      if (cancelled || result.error || !result.data) return;
+      setData(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, live]);
+
+  // Polling fallback (covers the whole ingesting→building window) in case the
+  // SSE proxy drops the stream. Both paths converge on setData; harmless overlap.
   useEffect(() => {
     if (!shouldPollForLedger) return;
     let cancelled = false;
@@ -159,16 +180,17 @@ export default function CaseDetailPage({ params }: PageProps) {
       run={state}
       caseId={id}
       runHistory={runHistory}
+      live={live}
     />
   );
 }
 
 function shouldPollCaseDetail(data: CaseDetailResponse | null): boolean {
-  return (
-    data?.source === "db" &&
-    data.case.ingestion_complete &&
-    !data.case.ledger_complete
-  );
+  // Poll across the whole non-terminal window — ingesting AND building — so the
+  // page still advances even if the SSE stream isn't connected. (The earlier
+  // version only polled after ingestion finished, so a page opened mid-ingestion
+  // never updated.)
+  return data?.source === "db" && !data.case.ledger_complete;
 }
 
 function replayStatus(status: RunHistoryEntry["run"]["status"]) {
@@ -257,12 +279,14 @@ function DbCaseView({
   run,
   caseId,
   runHistory,
+  live,
 }: {
   data: DbCaseResponse;
   onRun: () => void;
   run: ReturnType<typeof useRunStream>["state"];
   caseId: string;
   runHistory: RunHistoryEntry[];
+  live: CaseStatusEvent | null;
 }) {
   const c = data.case as DbCase;
   const room = dbRoomState(c);
@@ -271,7 +295,7 @@ function DbCaseView({
     <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
       <DbCaseHeader caseRow={c} />
       <DbGateRail postings={run.postings} canRun={room.canRun} />
-      <DbCaseBody data={data} run={run} room={room} onRun={onRun} />
+      <DbCaseBody data={data} run={run} room={room} onRun={onRun} live={live} />
       <DbDecision caseId={caseId} run={run} />
       <RunHistoryStrip history={runHistory} />
     </div>
@@ -445,11 +469,13 @@ function DbCaseBody({
   run,
   room,
   onRun,
+  live,
 }: {
   data: DbCaseResponse;
   run: ReturnType<typeof useRunStream>["state"];
   room: DbRoomState;
   onRun: () => void;
+  live: CaseStatusEvent | null;
 }) {
   const c = data.case as DbCase;
 
@@ -462,6 +488,9 @@ function DbCaseBody({
           nodes={data.nodes}
           edges={data.edges}
           ingestionComplete={room.ingestionComplete}
+          build={live?.build ?? null}
+          extracted={live?.extracted}
+          total={live?.total}
         />
       </div>
       <ArgumentRoom

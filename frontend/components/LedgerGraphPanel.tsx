@@ -1,12 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { EdgeRow, NodeRow } from "@/lib/types";
+import type { CaseBuildProgress } from "@/lib/useCaseStream";
 
 interface Props {
   hasLedger: boolean;
   nodes: NodeRow[];
   edges: EdgeRow[];
   ingestionComplete: boolean;
+  /** Live ledger-build progress from the case-status stream (null until build starts). */
+  build?: CaseBuildProgress | null;
+  extracted?: number;
+  total?: number;
 }
 
 const NODE_TONE: Record<NodeRow["type"], string> = {
@@ -36,11 +42,20 @@ export function LedgerGraphPanel({
   nodes,
   edges,
   ingestionComplete,
+  build = null,
+  extracted,
+  total,
 }: Props) {
+  const building = !hasLedger && build != null && build.phase !== "done";
   return (
-    <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    <section className="flex min-h-70 flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <div className="shrink-0 border-border-soft border-b px-5 pt-5 pb-3">
-        <LedgerHeader hasLedger={hasLedger} nodes={nodes} edges={edges} />
+        <LedgerHeader
+          hasLedger={hasLedger}
+          nodes={nodes}
+          edges={edges}
+          building={building}
+        />
       </div>
       <div className="flex-1 overflow-auto px-5 py-4">
         <LedgerContent
@@ -48,6 +63,9 @@ export function LedgerGraphPanel({
           nodes={nodes}
           edges={edges}
           ingestionComplete={ingestionComplete}
+          build={build}
+          extracted={extracted}
+          total={total}
         />
       </div>
     </section>
@@ -58,7 +76,8 @@ function LedgerHeader({
   hasLedger,
   nodes,
   edges,
-}: Pick<Props, "hasLedger" | "nodes" | "edges">) {
+  building,
+}: Pick<Props, "hasLedger" | "nodes" | "edges"> & { building: boolean }) {
   return (
     <header className="flex items-baseline justify-between gap-3">
       <div>
@@ -70,7 +89,12 @@ function LedgerHeader({
           verbatim quote anchored to its source page.
         </p>
       </div>
-      <LedgerBadge hasLedger={hasLedger} nodes={nodes} edges={edges} />
+      <LedgerBadge
+        hasLedger={hasLedger}
+        nodes={nodes}
+        edges={edges}
+        building={building}
+      />
     </header>
   );
 }
@@ -79,34 +103,135 @@ function LedgerBadge({
   hasLedger,
   nodes,
   edges,
-}: Pick<Props, "hasLedger" | "nodes" | "edges">) {
-  if (!hasLedger) {
+  building,
+}: Pick<Props, "hasLedger" | "nodes" | "edges"> & { building: boolean }) {
+  if (hasLedger) {
     return (
-      <span className="rounded-full border border-warn/40 bg-warn/10 px-2.5 py-0.5 text-[10.5px] text-warn uppercase tracking-wider">
-        Locked
+      <span className="rounded-full border border-ok/40 bg-ok/10 px-2.5 py-0.5 text-[10.5px] text-ok uppercase tracking-wider">
+        Built · {nodes.length} nodes / {edges.length} edges
       </span>
     );
   }
-
+  if (building) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 text-[10.5px] text-accent uppercase tracking-wider">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+        Building
+      </span>
+    );
+  }
   return (
-    <span className="rounded-full border border-ok/40 bg-ok/10 px-2.5 py-0.5 text-[10.5px] text-ok uppercase tracking-wider">
-      Built · {nodes.length} nodes / {edges.length} edges
+    <span className="rounded-full border border-warn/40 bg-warn/10 px-2.5 py-0.5 text-[10.5px] text-warn uppercase tracking-wider">
+      Locked
     </span>
   );
 }
 
-function LedgerContent({ hasLedger, nodes, edges, ingestionComplete }: Props) {
-  if (!hasLedger) {
-    return <LockedLedger ingestionComplete={ingestionComplete} />;
+function LedgerContent({
+  hasLedger,
+  nodes,
+  edges,
+  ingestionComplete,
+  build,
+  extracted,
+  total,
+}: Props) {
+  if (hasLedger) {
+    if (nodes.length === 0) {
+      return (
+        <p className="text-[13px] text-muted">
+          Ledger marked complete, but no nodes yet.
+        </p>
+      );
+    }
+    return <LedgerSections nodes={nodes} edges={edges} />;
   }
-  if (nodes.length === 0) {
+  // Not built yet — show the live build view if the ledger lane is working,
+  // otherwise the appropriate "waiting" message.
+  if (build && build.phase !== "done") {
+    return <BuildingLedger build={build} extracted={extracted} total={total} />;
+  }
+  return <LockedLedger ingestionComplete={ingestionComplete} />;
+}
+
+const BUILD_PHASES: { key: string; label: string }[] = [
+  { key: "extracting", label: "Extracting the typed evidence graph" },
+  { key: "anchoring", label: "Validating fact anchors to sources" },
+  { key: "writing", label: "Writing nodes + edges to the ledger" },
+  { key: "done", label: "Ledger locked" },
+];
+
+function useElapsedSeconds(): number {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return seconds;
+}
+
+function BuildingLedger({
+  build,
+  extracted,
+  total,
+}: {
+  build: CaseBuildProgress;
+  extracted?: number;
+  total?: number;
+}) {
+  const elapsed = useElapsedSeconds();
+  const activeIdx = Math.max(
+    0,
+    BUILD_PHASES.findIndex((p) => p.key === build.phase),
+  );
+
+  return (
+    <div className="rounded-pill border border-accent/30 bg-accent/5 p-4">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+        <span className="font-medium text-[13px] text-text">
+          Building the Evidence Ledger…
+        </span>
+        <span className="ml-auto font-mono text-[11px] text-muted-2">
+          {elapsed}s
+        </span>
+      </div>
+      {build.detail ? (
+        <p className="mt-2 text-[12.5px] text-muted">{build.detail}</p>
+      ) : null}
+      <ol className="mt-3 grid gap-1.5">
+        {BUILD_PHASES.map((phase, i) => (
+          <li key={phase.key} className="flex items-center gap-2 text-[12.5px]">
+            <PhaseDot
+              state={
+                i < activeIdx ? "done" : i === activeIdx ? "active" : "todo"
+              }
+            />
+            <span className={i <= activeIdx ? "text-text" : "text-muted-2"}>
+              {phase.label}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {typeof total === "number" && total > 0 ? (
+        <p className="mt-3 text-[11.5px] text-muted-2">
+          {extracted ?? 0}/{total} document(s) extracted
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PhaseDot({ state }: { state: "done" | "active" | "todo" }) {
+  if (state === "done") {
+    return <span className="text-[12px] text-ok">✓</span>;
+  }
+  if (state === "active") {
     return (
-      <p className="text-[13px] text-muted">
-        Ledger marked complete, but no nodes yet.
-      </p>
+      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
     );
   }
-  return <LedgerSections nodes={nodes} edges={edges} />;
+  return <span className="inline-block h-2 w-2 rounded-full bg-border" />;
 }
 
 function LockedLedger({ ingestionComplete }: { ingestionComplete: boolean }) {
