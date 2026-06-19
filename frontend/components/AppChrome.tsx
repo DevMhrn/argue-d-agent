@@ -21,7 +21,9 @@ const NAV: { label: string; href: string; match: (p: string) => boolean }[] = [
     href: "/cases/new",
     match: (p) => p.startsWith("/cases/new"),
   },
-  { label: "Tokens", href: "/tokens", match: (p) => p.startsWith("/tokens") },
+  // Tokens route stays reachable directly at /tokens — just hidden from
+  // the top-bar nav per the design decision to keep design-system pages
+  // accessible to engineers but invisible to product users.
   {
     label: "Storyboard",
     href: "/storyboard",
