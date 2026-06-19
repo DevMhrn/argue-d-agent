@@ -48,9 +48,12 @@ export default function CaseDetailPage({ params }: PageProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const { state, start, seed } = useRunStream();
+  // Bumped after a document is added so the status stream reopens and the
+  // rebuild on an already-complete case animates live.
+  const [streamReopenKey, setStreamReopenKey] = useState(0);
   // Live case status (SSE) — pushes ingestion/ledger transitions + the ledger
   // lane's build phase so the page advances without a manual refresh.
-  const live = useCaseStream(id, data?.source === "db");
+  const live = useCaseStream(id, data?.source === "db", streamReopenKey);
   const shouldPollForLedger = shouldPollCaseDetail(data);
 
   useEffect(() => {
@@ -181,6 +184,7 @@ export default function CaseDetailPage({ params }: PageProps) {
       caseId={id}
       runHistory={runHistory}
       live={live}
+      onDocumentAdded={() => setStreamReopenKey((k) => k + 1)}
     />
   );
 }
@@ -280,6 +284,7 @@ function DbCaseView({
   caseId,
   runHistory,
   live,
+  onDocumentAdded,
 }: {
   data: DbCaseResponse;
   onRun: () => void;
@@ -287,6 +292,7 @@ function DbCaseView({
   caseId: string;
   runHistory: RunHistoryEntry[];
   live: CaseStatusEvent | null;
+  onDocumentAdded: () => void;
 }) {
   const c = data.case as DbCase;
   const room = dbRoomState(c);
@@ -295,7 +301,14 @@ function DbCaseView({
     <div className="mx-auto flex w-full max-w-350 flex-1 flex-col gap-4 px-6 py-6">
       <DbCaseHeader caseRow={c} />
       <DbGateRail postings={run.postings} canRun={room.canRun} />
-      <DbCaseBody data={data} run={run} room={room} onRun={onRun} live={live} />
+      <DbCaseBody
+        data={data}
+        run={run}
+        room={room}
+        onRun={onRun}
+        live={live}
+        onDocumentAdded={onDocumentAdded}
+      />
       <DbDecision caseId={caseId} run={run} />
       <RunHistoryStrip history={runHistory} />
     </div>
@@ -470,19 +483,25 @@ function DbCaseBody({
   room,
   onRun,
   live,
+  onDocumentAdded,
 }: {
   data: DbCaseResponse;
   run: ReturnType<typeof useRunStream>["state"];
   room: DbRoomState;
   onRun: () => void;
   live: CaseStatusEvent | null;
+  onDocumentAdded: () => void;
 }) {
   const c = data.case as DbCase;
 
   return (
     <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex h-full max-h-[85vh] min-h-0 flex-col gap-4 overflow-hidden">
-        <DocumentsPanel caseUuid={c.id} initialDocuments={data.documents} />
+        <DocumentsPanel
+          caseUuid={c.id}
+          initialDocuments={data.documents}
+          onDocumentAdded={onDocumentAdded}
+        />
         <LedgerGraphPanel
           hasLedger={data.has_ledger}
           nodes={data.nodes}

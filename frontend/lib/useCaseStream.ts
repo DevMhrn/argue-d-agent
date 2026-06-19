@@ -31,6 +31,10 @@ export interface CaseStatusEvent {
 export function useCaseStream(
   caseId: string,
   enabled: boolean,
+  /** Bump to force-reopen the stream — e.g. after a document is added to an
+   *  already-complete case, so the rebuild animates live (the server closes the
+   *  stream once a case is settled). */
+  reopenKey = 0,
 ): CaseStatusEvent | null {
   const [status, setStatus] = useState<CaseStatusEvent | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
@@ -55,12 +59,12 @@ export function useCaseStream(
         // ignore malformed frames
       }
     });
-    // The server sends "done" and closes once the ledger is locked; just stop.
+    // The server sends "done" and closes once the case is settled; just stop.
     src.addEventListener("done", close);
     src.onerror = close;
 
     return close;
-  }, [caseId, enabled]);
+  }, [caseId, enabled, reopenKey]);
 
   return status;
 }

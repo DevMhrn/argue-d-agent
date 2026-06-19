@@ -33,6 +33,9 @@ import { useCaseUpload } from "@/lib/useCaseUpload";
 interface Props {
   caseUuid: string;
   initialDocuments: DocumentRow[];
+  /** Called after a document is committed — lets the parent reopen the
+   *  case-status stream so a rebuild on an already-complete case animates live. */
+  onDocumentAdded?: () => void;
 }
 
 const STATUS_TONE: Record<DocumentRow["status"], string> = {
@@ -55,10 +58,15 @@ function isTerminal(s: DocumentRow["status"]): boolean {
   return s === "extracted" || s === "failed";
 }
 
-export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
+export function DocumentsPanel({
+  caseUuid,
+  initialDocuments,
+  onDocumentAdded,
+}: Props) {
   const { docs, files, addFiles, rejectedNote, summary } = useDocumentsPanel({
     caseUuid,
     initialDocuments,
+    onDocumentAdded,
   });
 
   return (
@@ -71,7 +79,11 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
   );
 }
 
-function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
+function useDocumentsPanel({
+  caseUuid,
+  initialDocuments,
+  onDocumentAdded,
+}: Props) {
   const [docs, setDocs] = useState<DocumentRow[]>(initialDocuments);
   const [rejectedNote, setRejectedNote] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -82,10 +94,15 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
     // in the server-side list within ~150 ms (rather than waiting for the
     // next 1.5 s tick).
     setRefreshNonce((n) => n + 1);
+    // Let the parent reopen the case-status stream so the ledger rebuild
+    // triggered by this new document animates live.
+    onDocumentAdded?.();
   }
 
   function onRejected(rejected: FileRejection[]) {
-    const list = rejected.map((r) => `${r.file.name} — ${r.message}`).join("; ");
+    const list = rejected
+      .map((r) => `${r.file.name} — ${r.message}`)
+      .join("; ");
     setRejectedNote(`Can't ingest: ${list}`);
     window.setTimeout(() => setRejectedNote(null), 6000);
   }

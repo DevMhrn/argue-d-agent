@@ -246,6 +246,7 @@ async def api_case_events(case_id: str):
     async def stream():
         repo = IngestionRepository()
         last: dict[str, Any] | None = None
+        settled = 0  # consecutive "nothing active" polls — debounce before closing
         # Safety cap: ~6 minutes of polling, then close (client reconnects if needed).
         for _ in range(240):
             try:
@@ -261,7 +262,18 @@ async def api_case_events(case_id: str):
             if payload != last:
                 yield _sse("status", payload)
                 last = payload
-            if case.ledger_complete or case.finalized:
+            # Stay open while anything is in motion: documents still extracting
+            # (ingestion or a doc added later) OR a ledger (re)build in progress.
+            # Closing only after 2 consecutive settled polls bridges the brief gap
+            # between an extraction finishing and a rebuild job picking up.
+            build = payload.get("build") or {}
+            building = build.get("phase") not in (None, "done")
+            ingesting = any(
+                d["status"] not in ("extracted", "failed") for d in payload["documents"]
+            )
+            terminal = (case.ledger_complete or case.finalized) and not building and not ingesting
+            settled = settled + 1 if terminal else 0
+            if settled >= 2:
                 yield _sse("done", {})
                 return
             await asyncio.sleep(1.5)

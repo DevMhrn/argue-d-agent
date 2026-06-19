@@ -46,7 +46,9 @@ export function LedgerGraphPanel({
   extracted,
   total,
 }: Props) {
-  const building = !hasLedger && build != null && build.phase !== "done";
+  // A build is in progress for the INITIAL build (hasLedger=false) *or* a rebuild
+  // triggered by a doc added to an already-complete case (hasLedger=true).
+  const building = build != null && build.phase !== "done";
   return (
     <section className="flex min-h-70 flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <div className="shrink-0 border-border-soft border-b px-5 pt-5 pb-3">
@@ -136,6 +138,11 @@ function LedgerContent({
   extracted,
   total,
 }: Props) {
+  // Live build view takes priority — covers the initial build AND a rebuild on
+  // an already-complete case (a newly added document re-runs the ledger lane).
+  if (build && build.phase !== "done") {
+    return <BuildingLedger build={build} extracted={extracted} total={total} />;
+  }
   if (hasLedger) {
     if (nodes.length === 0) {
       return (
@@ -145,11 +152,6 @@ function LedgerContent({
       );
     }
     return <LedgerSections nodes={nodes} edges={edges} />;
-  }
-  // Not built yet — show the live build view if the ledger lane is working,
-  // otherwise the appropriate "waiting" message.
-  if (build && build.phase !== "done") {
-    return <BuildingLedger build={build} extracted={extracted} total={total} />;
   }
   return <LockedLedger ingestionComplete={ingestionComplete} />;
 }
