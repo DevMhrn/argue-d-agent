@@ -19,6 +19,34 @@ function copyToClipboard(text: string): void {
   if (clip) clip.writeText(text);
 }
 
+/** Copy text to the clipboard and flash a "copied" state for 1.6s. Shared by
+ *  the demand-letter toolbar and the audit seal (both copy a value on click). */
+function useCopyFlash(): { copied: boolean; copy: (text: string) => void } {
+  const [copied, setCopied] = useState(false);
+  const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetRef.current) clearTimeout(resetRef.current);
+    },
+    [],
+  );
+
+  const copy = (text: string) => {
+    if (!text) return;
+    try {
+      copyToClipboard(text);
+    } catch {
+      // Clipboard may be unavailable (insecure / SSR context); ignore.
+    }
+    setCopied(true);
+    if (resetRef.current) clearTimeout(resetRef.current);
+    resetRef.current = setTimeout(() => setCopied(false), 1600);
+  };
+
+  return { copied, copy };
+}
+
 interface Props {
   caseId: string;
   decision: DecisionResult | null;
@@ -437,25 +465,7 @@ function DemandLetter({
   letterText: string;
   caseId: string;
 }) {
-  const [copied, setCopied] = useState(false);
-  const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (resetRef.current) clearTimeout(resetRef.current);
-    };
-  }, []);
-
-  function copyLetter() {
-    try {
-      copyToClipboard(letterText);
-    } catch {
-      // Clipboard may be unavailable (insecure context); ignore.
-    }
-    setCopied(true);
-    if (resetRef.current) clearTimeout(resetRef.current);
-    resetRef.current = setTimeout(() => setCopied(false), 1600);
-  }
+  const { copied, copy } = useCopyFlash();
 
   function downloadLetter() {
     try {
@@ -475,116 +485,164 @@ function DemandLetter({
 
   return (
     <>
-      <div className="mb-3.5 flex items-center justify-between">
-        <div className="font-mono text-[11px] text-muted-2 uppercase tracking-[0.14em]">
-          Demand letter
-        </div>
-        <div className="flex gap-1.75">
-          <button
-            type="button"
-            onClick={copyLetter}
-            disabled={!letterText}
-            className="flex items-center gap-1.25 rounded-[7px] border border-border bg-panel-2 px-2.75 py-1.25 font-mono text-[11px] text-muted disabled:opacity-50"
-          >
-            <Icon name={copied ? "check" : "copy"} size={12} />
-            {copied ? "Copied" : "Copy"}
-          </button>
-          <button
-            type="button"
-            onClick={downloadLetter}
-            disabled={!letterText}
-            className="flex items-center gap-1.25 rounded-[7px] border border-border bg-panel-2 px-2.75 py-1.25 font-mono text-[11px] text-muted disabled:opacity-50"
-          >
-            <Icon name="download" size={12} />
-            Download
-          </button>
-        </div>
-      </div>
+      <DemandLetterToolbar
+        copied={copied}
+        letterText={letterText}
+        onCopy={() => copy(letterText)}
+        onDownload={downloadLetter}
+      />
+      <DemandLetterBody view={view} paragraphs={paragraphs} />
+    </>
+  );
+}
 
+function DemandLetterToolbar({
+  copied,
+  letterText,
+  onCopy,
+  onDownload,
+}: {
+  copied: boolean;
+  letterText: string;
+  onCopy: () => void;
+  onDownload: () => void;
+}) {
+  return (
+    <div className="mb-3.5 flex items-center justify-between">
+      <div className="font-mono text-[11px] text-muted-2 uppercase tracking-[0.14em]">
+        Demand letter
+      </div>
+      <div className="flex gap-1.75">
+        <button
+          type="button"
+          onClick={onCopy}
+          disabled={!letterText}
+          className="flex items-center gap-1.25 rounded-[7px] border border-border bg-panel-2 px-2.75 py-1.25 font-mono text-[11px] text-muted disabled:opacity-50"
+        >
+          <Icon name={copied ? "check" : "copy"} size={12} />
+          {copied ? "Copied" : "Copy"}
+        </button>
+        <button
+          type="button"
+          onClick={onDownload}
+          disabled={!letterText}
+          className="flex items-center gap-1.25 rounded-[7px] border border-border bg-panel-2 px-2.75 py-1.25 font-mono text-[11px] text-muted disabled:opacity-50"
+        >
+          <Icon name="download" size={12} />
+          Download
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DemandLetterBody({
+  view,
+  paragraphs,
+}: {
+  view: DecisionView;
+  paragraphs: string[];
+}) {
+  return (
+    <div
+      className="relative rounded-[10px] p-1.25"
+      style={{ background: "linear-gradient(180deg,#0c0a07,#13100b)" }}
+    >
       <div
-        className="relative rounded-[10px] p-1.25"
-        style={{ background: "linear-gradient(180deg,#0c0a07,#13100b)" }}
+        className="relative max-h-130 overflow-y-auto rounded-[7px] font-serif"
+        style={{
+          background: "#f1ebdd",
+          padding: "32px 34px",
+          color: "#241f17",
+          boxShadow:
+            "inset 0 7px 16px -9px rgba(50,40,22,0.7), inset 0 1px 0 rgba(120,105,80,0.35)",
+        }}
       >
         <div
-          className="relative max-h-130 overflow-y-auto rounded-[7px] font-serif"
+          aria-hidden="true"
           style={{
-            background: "#f1ebdd",
-            padding: "32px 34px",
-            color: "#241f17",
-            boxShadow:
-              "inset 0 7px 16px -9px rgba(50,40,22,0.7), inset 0 1px 0 rgba(120,105,80,0.35)",
+            position: "absolute",
+            top: "46%",
+            left: "50%",
+            transform: "translate(-50%,-50%) rotate(-19deg)",
+            pointerEvents: "none",
+            fontFamily: "var(--font-serif)",
+            fontWeight: 700,
+            fontSize: "108px",
+            letterSpacing: "0.06em",
+            color: "#ece4d2",
+            textShadow:
+              "0 1px 0 rgba(255,253,247,0.9), 0 -1px 1px rgba(120,105,78,0.5), 0 2px 3px rgba(120,105,78,0.25)",
+            userSelect: "none",
           }}
         >
-          <div
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              top: "46%",
-              left: "50%",
-              transform: "translate(-50%,-50%) rotate(-19deg)",
-              pointerEvents: "none",
-              fontFamily: "var(--font-serif)",
-              fontWeight: 700,
-              fontSize: "108px",
-              letterSpacing: "0.06em",
-              color: "#ece4d2",
-              textShadow:
-                "0 1px 0 rgba(255,253,247,0.9), 0 -1px 1px rgba(120,105,78,0.5), 0 2px 3px rgba(120,105,78,0.25)",
-              userSelect: "none",
-            }}
-          >
-            DEMAND
-          </div>
+          DEMAND
+        </div>
 
-          <div className="relative">
-            {paragraphs.length > 0 ? (
-              paragraphs.map((para, i) => (
-                <p
-                  // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional, content can repeat
-                  key={i}
-                  className="m-0 mb-3.25 text-[13.5px]"
-                  style={{ lineHeight: 1.7 }}
-                >
-                  {para}
-                </p>
-              ))
-            ) : (
-              <p
-                className="m-0 text-[#6b6354] text-[13.5px]"
-                style={{ lineHeight: 1.7 }}
-              >
-                Demand letter not yet drafted.
-              </p>
-            )}
+        <div className="relative">
+          <DemandParagraphs paragraphs={paragraphs} />
 
-            <div
-              className="mt-5 rounded-[7px] px-4 py-3.5 text-center"
-              style={{
-                background: "#e6dcc7",
-                boxShadow: "inset 0 2px 5px -2px rgba(80,65,40,0.4)",
-              }}
-            >
-              <div
-                className="mb-1 font-mono text-[10px] uppercase tracking-widest"
-                style={{ color: "#6b6354" }}
-              >
-                Total demand
-              </div>
-              <div className="tnum font-mono font-semibold text-[26px]">
-                {view.recoveryLabel}
-              </div>
-              <div className="mt-0.75 text-[11px]" style={{ color: "#6b6354" }}>
-                {view.faultThemPct}% of {view.documentedLabel}
-              </div>
-            </div>
+          <TotalDemandBox view={view} />
 
-            <div className="mt-5.5 text-[13px]">
-              Respond within <strong>30 days</strong>.
-            </div>
+          <div className="mt-5.5 text-[13px]">
+            Respond within <strong>30 days</strong>.
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DemandParagraphs({ paragraphs }: { paragraphs: string[] }) {
+  if (paragraphs.length === 0) {
+    return (
+      <p
+        className="m-0 text-[#6b6354] text-[13.5px]"
+        style={{ lineHeight: 1.7 }}
+      >
+        Demand letter not yet drafted.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {paragraphs.map((para, i) => (
+        <p
+          // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs are positional, content can repeat
+          key={i}
+          className="m-0 mb-3.25 text-[13.5px]"
+          style={{ lineHeight: 1.7 }}
+        >
+          {para}
+        </p>
+      ))}
     </>
+  );
+}
+
+function TotalDemandBox({ view }: { view: DecisionView }) {
+  return (
+    <div
+      className="mt-5 rounded-[7px] px-4 py-3.5 text-center"
+      style={{
+        background: "#e6dcc7",
+        boxShadow: "inset 0 2px 5px -2px rgba(80,65,40,0.4)",
+      }}
+    >
+      <div
+        className="mb-1 font-mono text-[10px] uppercase tracking-widest"
+        style={{ color: "#6b6354" }}
+      >
+        Total demand
+      </div>
+      <div className="tnum font-mono font-semibold text-[26px]">
+        {view.recoveryLabel}
+      </div>
+      <div className="mt-0.75 text-[11px]" style={{ color: "#6b6354" }}>
+        {view.faultThemPct}% of {view.documentedLabel}
+      </div>
+    </div>
   );
 }
 
@@ -646,26 +704,7 @@ function CaseClosed() {
 }
 
 function Seal({ view, auditHash }: { view: DecisionView; auditHash: string }) {
-  const [copied, setCopied] = useState(false);
-  const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (resetRef.current) clearTimeout(resetRef.current);
-    };
-  }, []);
-
-  function copyHash() {
-    if (!auditHash) return;
-    try {
-      copyToClipboard(auditHash);
-    } catch {
-      // Clipboard unavailable; ignore.
-    }
-    setCopied(true);
-    if (resetRef.current) clearTimeout(resetRef.current);
-    resetRef.current = setTimeout(() => setCopied(false), 1600);
-  }
+  const { copied, copy } = useCopyFlash();
 
   const sealColor = view.isDecline ? "var(--color-bad)" : "var(--color-ok)";
   const reduce = prefersReducedMotion();
@@ -680,113 +719,149 @@ function Seal({ view, auditHash }: { view: DecisionView; auditHash: string }) {
       className="mt-5 flex items-center gap-4.5 rounded-[11px] border border-border px-5 py-4.5"
       style={{ background: "#171410" }}
     >
+      <SealMark
+        sealColor={sealColor}
+        auditHash={auditHash}
+        reduce={reduce}
+        onCopy={() => copy(auditHash)}
+      />
+      <SealRecord
+        shortHash={shortHash}
+        copied={copied}
+        auditHash={auditHash}
+        onCopy={() => copy(auditHash)}
+      />
+    </div>
+  );
+}
+
+function SealMark({
+  sealColor,
+  auditHash,
+  reduce,
+  onCopy,
+}: {
+  sealColor: string;
+  auditHash: string;
+  reduce: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      title="Click to copy full SHA-256"
+      className="relative h-23 w-23 shrink-0 cursor-pointer appearance-none rounded-full border-0 bg-transparent p-0"
+    >
+      <svg
+        viewBox="0 0 100 100"
+        aria-hidden="true"
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "block",
+          animation: reduce ? undefined : "sealIn 0.5s ease-out",
+        }}
+      >
+        <defs>
+          <path id="sealRimTop" d="M 50,50 m -38,0 a 38,38 0 1,1 76,0" />
+          <path id="sealRimBot" d="M 50,50 m 38,0 a 38,38 0 1,1 -76,0" />
+        </defs>
+        <circle
+          cx="50"
+          cy="50"
+          r="46"
+          fill="none"
+          stroke={sealColor}
+          strokeWidth="1"
+          opacity="0.5"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r="42"
+          fill="none"
+          stroke={sealColor}
+          strokeWidth="2.5"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r="29"
+          fill="none"
+          stroke={sealColor}
+          strokeWidth="1"
+          strokeDasharray="2 2.4"
+          opacity="0.7"
+        />
+        <text
+          fill={sealColor}
+          fontFamily="Geist Mono, monospace"
+          fontSize="7.4"
+          letterSpacing="1.2"
+        >
+          <textPath href="#sealRimTop" startOffset="50%" textAnchor="middle">
+            SHA-256 · TAMPER-EVIDENT
+          </textPath>
+        </text>
+        <text
+          fill={sealColor}
+          fontFamily="Geist Mono, monospace"
+          fontSize="7.4"
+          letterSpacing="1.6"
+        >
+          <textPath href="#sealRimBot" startOffset="50%" textAnchor="middle">
+            {auditHash || "unsealed"}
+          </textPath>
+        </text>
+        <text x="50" y="47" textAnchor="middle" fontSize="22" fill={sealColor}>
+          ✦
+        </text>
+        <text
+          x="50"
+          y="62"
+          textAnchor="middle"
+          fontFamily="Geist Mono, monospace"
+          fontSize="6.4"
+          letterSpacing="1.4"
+          fill={sealColor}
+          opacity="0.8"
+        >
+          LUMEN
+        </text>
+      </svg>
+    </button>
+  );
+}
+
+function SealRecord({
+  shortHash,
+  copied,
+  auditHash,
+  onCopy,
+}: {
+  shortHash: string;
+  copied: boolean;
+  auditHash: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="font-mono text-[10px] text-muted-2 uppercase tracking-widest">
+        Record sealed
+      </div>
+      <div className="mt-0.75 break-all font-mono text-[14px] text-text">
+        {shortHash}
+      </div>
       <button
         type="button"
-        onClick={copyHash}
-        title="Click to copy full SHA-256"
-        className="relative h-23 w-23 shrink-0 cursor-pointer appearance-none rounded-full border-0 bg-transparent p-0"
+        onClick={onCopy}
+        disabled={!auditHash}
+        className="mt-2.25 rounded-[7px] border border-border bg-panel-2 px-3 py-1.25 font-mono text-[11px] disabled:opacity-50"
+        style={{ color: copied ? "var(--color-ok)" : "var(--color-muted)" }}
       >
-        <svg
-          viewBox="0 0 100 100"
-          aria-hidden="true"
-          style={{
-            width: "100%",
-            height: "100%",
-            display: "block",
-            animation: reduce ? undefined : "sealIn 0.5s ease-out",
-          }}
-        >
-          <defs>
-            <path id="sealRimTop" d="M 50,50 m -38,0 a 38,38 0 1,1 76,0" />
-            <path id="sealRimBot" d="M 50,50 m 38,0 a 38,38 0 1,1 -76,0" />
-          </defs>
-          <circle
-            cx="50"
-            cy="50"
-            r="46"
-            fill="none"
-            stroke={sealColor}
-            strokeWidth="1"
-            opacity="0.5"
-          />
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            fill="none"
-            stroke={sealColor}
-            strokeWidth="2.5"
-          />
-          <circle
-            cx="50"
-            cy="50"
-            r="29"
-            fill="none"
-            stroke={sealColor}
-            strokeWidth="1"
-            strokeDasharray="2 2.4"
-            opacity="0.7"
-          />
-          <text
-            fill={sealColor}
-            fontFamily="Geist Mono, monospace"
-            fontSize="7.4"
-            letterSpacing="1.2"
-          >
-            <textPath href="#sealRimTop" startOffset="50%" textAnchor="middle">
-              SHA-256 · TAMPER-EVIDENT
-            </textPath>
-          </text>
-          <text
-            fill={sealColor}
-            fontFamily="Geist Mono, monospace"
-            fontSize="7.4"
-            letterSpacing="1.6"
-          >
-            <textPath href="#sealRimBot" startOffset="50%" textAnchor="middle">
-              {auditHash || "unsealed"}
-            </textPath>
-          </text>
-          <text
-            x="50"
-            y="47"
-            textAnchor="middle"
-            fontSize="22"
-            fill={sealColor}
-          >
-            ✦
-          </text>
-          <text
-            x="50"
-            y="62"
-            textAnchor="middle"
-            fontFamily="Geist Mono, monospace"
-            fontSize="6.4"
-            letterSpacing="1.4"
-            fill={sealColor}
-            opacity="0.8"
-          >
-            LUMEN
-          </text>
-        </svg>
+        {copied ? "✓ copied to clipboard" : "Copy full hash"}
       </button>
-      <div className="min-w-0 flex-1">
-        <div className="font-mono text-[10px] text-muted-2 uppercase tracking-widest">
-          Record sealed
-        </div>
-        <div className="mt-0.75 break-all font-mono text-[14px] text-text">
-          {shortHash}
-        </div>
-        <button
-          type="button"
-          onClick={copyHash}
-          disabled={!auditHash}
-          className="mt-2.25 rounded-[7px] border border-border bg-panel-2 px-3 py-1.25 font-mono text-[11px] disabled:opacity-50"
-          style={{ color: copied ? "var(--color-ok)" : "var(--color-muted)" }}
-        >
-          {copied ? "✓ copied to clipboard" : "Copy full hash"}
-        </button>
-      </div>
     </div>
   );
 }

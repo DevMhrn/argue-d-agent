@@ -122,34 +122,13 @@ export default function CaseDetailPage({ params }: PageProps) {
   useEffect(() => {
     if (data?.source !== "db") return;
     let cancelled = false;
-    (async () => {
-      try {
-        const { runs } = await listRunsForCase(data.case.id);
-        if (cancelled) return;
-        setRunHistory(runs);
-        const latest = replayableLatestRun(runs, runReplaySuspended);
-        if (!latest) return;
-        const replay = await getRunReplay(latest.id);
-        if (cancelled) return;
-        seed({
-          caseId: data.case.case_id,
-          runId: latest.id,
-          postings: replay.postings.map((p) => ({
-            seq: p.seq,
-            agent: p.agent,
-            color: `c${p.color}`, // RoomPosting.color is a string token
-            kind: p.kind,
-            content: p.content,
-            metadata: p.metadata,
-            at: new Date(p.posted_at).getTime(),
-          })),
-          decision: decisionFromPersisted(replay.decision),
-          status: replayStatus(latest.status),
-        });
-      } catch {
-        // Don't block the page if the runs endpoint isn't reachable yet.
-      }
-    })();
+    void loadRunHistoryAndReplay({
+      caseRow: data.case,
+      runReplaySuspended,
+      isCancelled: () => cancelled,
+      setRunHistory,
+      seed,
+    });
     return () => {
       cancelled = true;
     };
@@ -177,39 +156,80 @@ export default function CaseDetailPage({ params }: PageProps) {
     }
   };
 
-  if (loadError) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-10">
-        <div className="rounded-card border border-bad/40 bg-bad/5 p-6 text-sm">
-          <p className="font-medium text-bad">{loadError}</p>
-          <p className="mt-2 text-muted">
-            Open{" "}
-            <Link className="text-accent hover:underline" href="/">
-              the cases list
-            </Link>{" "}
-            to see what&apos;s available.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (loadError) return <LoadErrorView message={loadError} />;
+  if (!data) return <LoadingView />;
 
-  if (!data) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-6 py-10 text-muted text-sm">
-        Loading case…
-      </div>
-    );
-  }
+  return (
+    <CaseRouter
+      data={data}
+      run={state}
+      caseId={id}
+      runHistory={runHistory}
+      live={live}
+      onRun={handleRun}
+      onDocumentsChanged={handleDocumentsChanged}
+      highlightFact={highlightFact}
+      onCiteClick={setHighlightFact}
+    />
+  );
+}
 
+/* ----- top-level render branches (error / loading / demo-vs-db) ----------- */
+
+function LoadErrorView({ message }: { message: string }) {
+  return (
+    <div className="mx-auto w-full max-w-3xl px-6 py-10">
+      <div className="rounded-card border border-bad/40 bg-bad/5 p-6 text-sm">
+        <p className="font-medium text-bad">{message}</p>
+        <p className="mt-2 text-muted">
+          Open{" "}
+          <Link className="text-accent hover:underline" href="/">
+            the cases list
+          </Link>{" "}
+          to see what&apos;s available.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function LoadingView() {
+  return (
+    <div className="mx-auto w-full max-w-3xl px-6 py-10 text-muted text-sm">
+      Loading case…
+    </div>
+  );
+}
+
+function CaseRouter({
+  data,
+  run,
+  caseId,
+  runHistory,
+  live,
+  onRun,
+  onDocumentsChanged,
+  highlightFact,
+  onCiteClick,
+}: {
+  data: CaseDetailResponse;
+  run: RunState;
+  caseId: string;
+  runHistory: RunHistoryEntry[];
+  live: CaseStatusEvent | null;
+  onRun: () => void;
+  onDocumentsChanged: () => void;
+  highlightFact: string | null;
+  onCiteClick: (factId: string) => void;
+}) {
   if (data.source === "demo") {
     return (
       <DemoCaseView
         data={data}
-        onRun={handleRun}
-        run={state}
+        onRun={onRun}
+        run={run}
         highlightFact={highlightFact}
-        onCiteClick={setHighlightFact}
+        onCiteClick={onCiteClick}
       />
     );
   }
@@ -217,14 +237,14 @@ export default function CaseDetailPage({ params }: PageProps) {
   return (
     <DbCaseView
       data={data}
-      onRun={handleRun}
-      run={state}
-      caseId={id}
+      onRun={onRun}
+      run={run}
+      caseId={caseId}
       runHistory={runHistory}
       live={live}
-      onDocumentsChanged={handleDocumentsChanged}
+      onDocumentsChanged={onDocumentsChanged}
       highlightFact={highlightFact}
-      onCiteClick={setHighlightFact}
+      onCiteClick={onCiteClick}
     />
   );
 }
@@ -285,6 +305,52 @@ function applyCaseLoadResult(
     return;
   }
   setData(result.data);
+}
+
+type SeedFn = ReturnType<typeof useRunStream>["seed"];
+
+// Cyclomatic count here is just the required unmount-cancellation guards around
+// two awaits; the flow is a linear load-then-seed pipeline (cognitive 4).
+// fallow-ignore-next-line complexity
+async function loadRunHistoryAndReplay({
+  caseRow,
+  runReplaySuspended,
+  isCancelled,
+  setRunHistory,
+  seed,
+}: {
+  caseRow: { id: string; case_id: string };
+  runReplaySuspended: boolean;
+  isCancelled: () => boolean;
+  setRunHistory: (runs: RunHistoryEntry[]) => void;
+  seed: SeedFn;
+}) {
+  try {
+    const { runs } = await listRunsForCase(caseRow.id);
+    if (isCancelled()) return;
+    setRunHistory(runs);
+    const latest = replayableLatestRun(runs, runReplaySuspended);
+    if (!latest) return;
+    const replay = await getRunReplay(latest.id);
+    if (isCancelled()) return;
+    seed({
+      caseId: caseRow.case_id,
+      runId: latest.id,
+      postings: replay.postings.map((p) => ({
+        seq: p.seq,
+        agent: p.agent,
+        color: `c${p.color}`, // RoomPosting.color is a string token
+        kind: p.kind,
+        content: p.content,
+        metadata: p.metadata,
+        at: new Date(p.posted_at).getTime(),
+      })),
+      decision: decisionFromPersisted(replay.decision),
+      status: replayStatus(latest.status),
+    });
+  } catch {
+    // Don't block the page if the runs endpoint isn't reachable yet.
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -656,6 +722,8 @@ function formatFiled(iso: string | null): string | null {
   });
 }
 
+/* ----- shared right-column (argument room) + disposition slot ------------- */
+
 /* ---------------------------------------------------------------------------
    DEMO case — legacy mock orchestration, now rendered into the shared shell.
    The demo pipeline runs intake → evidence → debate inline, so a synthetic
@@ -701,15 +769,10 @@ function DemoCaseView({
       left={<LedgerPanel claim={claim} highlightFact={highlightFact} />}
       right={
         <ArgumentRoom
-          status={run.status}
-          postings={run.postings}
-          bandRoomId={run.bandRoomId}
-          activeRunId={run.activeRunId}
-          lastSeq={run.lastSeq}
+          run={run}
           canRun={room.canRun}
           lockedReason={room.lockedReason}
           onRun={onRun}
-          activity={run.activity}
           highlightFact={highlightFact}
           onCiteClick={onCiteClick}
         />
@@ -788,57 +851,28 @@ function DbCaseView({
   const documentedUsd = c.damages_usd;
   const readout = readoutFromRun(run, documentedUsd);
 
-  const caption: CaptionModel = {
-    id: c.case_id,
-    kicker: "Subrogation recovery case",
-    title: c.title,
-    tagline: caseTagline(c),
-    summary: caseSummary(c),
-    parts: captionParts(
-      c.case_id,
-      c.jurisdiction,
-      formatFiled(c.last_run_at ?? c.updated_at),
-      documentedUsd,
-    ),
-  };
-
   return (
     <CaseShell
-      caption={caption}
+      caption={dbCaption(c, documentedUsd)}
       readout={readout}
       stageCase={c}
       gatePostings={run.postings}
       showGateRail={run.postings.length > 0 || room.canRun}
       left={
-        <>
-          <DocumentsPanel
-            caseUuid={c.id}
-            initialDocuments={data.documents}
-            onDocumentsChanged={onDocumentsChanged}
-          />
-          <LedgerGraphPanel
-            hasLedger={data.has_ledger}
-            nodes={data.nodes}
-            edges={data.edges}
-            ingestionComplete={room.ingestionComplete}
-            build={live?.build ?? null}
-            extracted={live?.extracted}
-            total={live?.total}
-            highlightFact={highlightFact}
-          />
-        </>
+        <DbLeftColumn
+          data={data}
+          room={room}
+          live={live}
+          onDocumentsChanged={onDocumentsChanged}
+          highlightFact={highlightFact}
+        />
       }
       right={
         <ArgumentRoom
-          status={run.status}
-          postings={run.postings}
-          bandRoomId={run.bandRoomId}
-          activeRunId={run.activeRunId}
-          lastSeq={run.lastSeq}
+          run={run}
           canRun={room.canRun}
           lockedReason={room.lockedReason}
           onRun={onRun}
-          activity={run.activity}
           highlightFact={highlightFact}
           onCiteClick={onCiteClick}
         />
@@ -854,6 +888,58 @@ function DbCaseView({
       }
       runHistory={<RunHistoryStrip history={runHistory} />}
     />
+  );
+}
+
+function dbCaption(c: DbCase, documentedUsd: number | null): CaptionModel {
+  return {
+    id: c.case_id,
+    kicker: "Subrogation recovery case",
+    title: c.title,
+    tagline: caseTagline(c),
+    summary: caseSummary(c),
+    parts: captionParts(
+      c.case_id,
+      c.jurisdiction,
+      formatFiled(c.last_run_at ?? c.updated_at),
+      documentedUsd,
+    ),
+  };
+}
+
+function DbLeftColumn({
+  data,
+  room,
+  live,
+  onDocumentsChanged,
+  highlightFact,
+}: {
+  data: DbCaseResponse;
+  room: DbRoomState;
+  live: CaseStatusEvent | null;
+  onDocumentsChanged: () => void;
+  highlightFact: string | null;
+}) {
+  const c = data.case as DbCase;
+  const { build = null, extracted, total } = live ?? {};
+  return (
+    <>
+      <DocumentsPanel
+        caseUuid={c.id}
+        initialDocuments={data.documents}
+        onDocumentsChanged={onDocumentsChanged}
+      />
+      <LedgerGraphPanel
+        hasLedger={data.has_ledger}
+        nodes={data.nodes}
+        edges={data.edges}
+        ingestionComplete={room.ingestionComplete}
+        build={build}
+        extracted={extracted}
+        total={total}
+        highlightFact={highlightFact}
+      />
+    </>
   );
 }
 
@@ -898,7 +984,3 @@ function dbRoomLockedReason(caseRow: DbCase): string | null {
   }
   return null;
 }
-
-// Re-exported for any sibling that wants the decision-readout mapping.
-export type { CaptionModel, ReadoutModel };
-export { runOutcomeState };

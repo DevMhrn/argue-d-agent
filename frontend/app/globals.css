@@ -72,10 +72,13 @@
   --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
 }
 
-/* Flat warm-charcoal page (no blue glow). Letter-spacing tightened like the comp. */
+/* Flat warm-charcoal page (no blue glow). Letter-spacing tightened like the comp.
+   NB: do NOT pin html/body to height:100% — that caps the sticky chrome's
+   containing block to one viewport and breaks position:sticky past the first
+   screen. body grows with content; min-h-screen (layout.tsx) keeps short pages
+   full-height. */
 html,
 body {
-  height: 100%;
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);

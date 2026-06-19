@@ -178,19 +178,16 @@ function useDocumentsPanel({
     onDocumentsChangedRef.current = onDocumentsChanged;
   }, [onDocumentsChanged]);
 
+  // After a commit, bump the nonce to force a quick refresh (~150 ms) so the
+  // new doc lands in the server list without waiting for the next 1.5 s tick.
+  // The parent is notified via onDocumentsChanged once the doc set changes
+  // (see applyServerDocuments).
   function onCommitted() {
-    // After a successful commit, force a quick refresh so the new doc lands
-    // in the server-side list within ~150 ms (rather than waiting for the
-    // next 1.5 s tick). The parent is notified via onDocumentsChanged when the
-    // refreshed document set actually changes (see applyServerDocuments).
     setRefreshNonce((n) => n + 1);
   }
 
   function onRejected(rejected: FileRejection[]) {
-    const list = rejected
-      .map((r) => `${r.file.name} — ${r.message}`)
-      .join("; ");
-    setRejectedNote(`Can't ingest: ${list}`);
+    setRejectedNote(rejectedNoteText(rejected));
     globalThis.setTimeout(() => setRejectedNote(null), 6000);
   }
 
@@ -205,46 +202,24 @@ function useDocumentsPanel({
 
   useEffect(() => {
     if (refreshNonce === 0) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const status = await getCaseStatus(caseUuid);
-        if (cancelled) return;
-        applyServerDocuments(
-          status.documents,
-          setDocs,
-          clearCommitted,
-          docsSignatureRef,
-          onDocumentsChangedRef,
-        );
-      } catch {
-        // ignore transient poll failures
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    return runImmediateRefresh({
+      caseUuid,
+      setDocs,
+      clearCommitted,
+      docsSignatureRef,
+      onDocumentsChangedRef,
+    });
   }, [caseUuid, clearCommitted, refreshNonce]);
 
   // Poll while any server-side doc is non-terminal OR any local upload is in flight.
   useEffect(() => {
-    if (!shouldPollDocuments(docs, anyInFlight)) {
-      clearPollInterval(intervalRef);
-      return;
-    }
-    if (intervalRef.current) return; // already polling
-    intervalRef.current = globalThis.setInterval(() => {
-      void refreshDocuments(
-        caseUuid,
-        setDocs,
-        clearCommitted,
-        docsSignatureRef,
-        onDocumentsChangedRef,
-      );
-    }, 1500);
-    return () => {
-      clearPollInterval(intervalRef);
-    };
+    return syncPollInterval(intervalRef, docs, anyInFlight, {
+      caseUuid,
+      setDocs,
+      clearCommitted,
+      docsSignatureRef,
+      onDocumentsChangedRef,
+    });
   }, [docs, anyInFlight, caseUuid, clearCommitted]);
 
   // Tear down on unmount.
@@ -254,20 +229,34 @@ function useDocumentsPanel({
     };
   }, []);
 
+  const summary = summarizeDocuments(docs);
+  return { docs, files, addFiles, rejectedNote, summary };
+}
+
+function rejectedNoteText(rejected: FileRejection[]): string {
+  const list = rejected.map((r) => `${r.file.name} — ${r.message}`).join("; ");
+  return `Can't ingest: ${list}`;
+}
+
+function summarizeDocuments(docs: DocumentRow[]): DocumentsSummary {
   const extracted = docs.filter((d) => d.status === "extracted").length;
   const failed = docs.filter((d) => d.status === "failed").length;
-
-  return {
-    docs,
-    files,
-    addFiles,
-    rejectedNote,
-    summary: { extracted, total: docs.length, failed },
-  };
+  return { extracted, total: docs.length, failed };
 }
 
 interface IntervalRef {
   current: PollTimer | null;
+}
+
+/** Stable handles the polling effects need to push fresh server docs into state
+ *  and notify the parent. Rebuilt each render so it always mirrors the latest
+ *  props/callbacks; the effects depend on the underlying values, not the object. */
+interface DocumentsSink {
+  caseUuid: string;
+  setDocs: (docs: DocumentRow[]) => void;
+  clearCommitted: (knownIds: Set<string>) => void;
+  docsSignatureRef: { current: string };
+  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] };
 }
 
 function shouldPollDocuments(
@@ -283,41 +272,61 @@ function clearPollInterval(intervalRef: IntervalRef) {
   intervalRef.current = null;
 }
 
-async function refreshDocuments(
-  caseUuid: string,
-  setDocs: (docs: DocumentRow[]) => void,
-  clearCommitted: (knownIds: Set<string>) => void,
-  docsSignatureRef: { current: string },
-  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
-) {
+// Immediate one-shot refresh after a commit. Returns the effect cleanup that
+// cancels the in-flight apply if the effect re-runs / unmounts first.
+function runImmediateRefresh(sink: DocumentsSink): () => void {
+  let cancelled = false;
+  (async () => {
+    try {
+      const status = await getCaseStatus(sink.caseUuid);
+      if (cancelled) return;
+      applyServerDocuments(status.documents, sink);
+    } catch {
+      // ignore transient poll failures
+    }
+  })();
+  return () => {
+    cancelled = true;
+  };
+}
+
+// Start/stop the 1.5 s poll loop. Returns the effect cleanup that clears it.
+function syncPollInterval(
+  intervalRef: IntervalRef,
+  docs: DocumentRow[],
+  anyInFlight: boolean,
+  sink: DocumentsSink,
+): (() => void) | undefined {
+  if (!shouldPollDocuments(docs, anyInFlight)) {
+    clearPollInterval(intervalRef);
+    return;
+  }
+  if (intervalRef.current) return; // already polling
+  intervalRef.current = globalThis.setInterval(() => {
+    void refreshDocuments(sink);
+  }, 1500);
+  return () => {
+    clearPollInterval(intervalRef);
+  };
+}
+
+async function refreshDocuments(sink: DocumentsSink) {
   try {
-    const status = await getCaseStatus(caseUuid);
-    applyServerDocuments(
-      status.documents,
-      setDocs,
-      clearCommitted,
-      docsSignatureRef,
-      onDocumentsChangedRef,
-    );
+    const status = await getCaseStatus(sink.caseUuid);
+    applyServerDocuments(status.documents, sink);
   } catch {
     // ignore transient poll failures
   }
 }
 
-function applyServerDocuments(
-  documents: DocumentRow[],
-  setDocs: (docs: DocumentRow[]) => void,
-  clearCommitted: (knownIds: Set<string>) => void,
-  docsSignatureRef: { current: string },
-  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
-) {
-  setDocs(documents);
-  clearCommitted(new Set(documents.map((doc) => doc.id)));
+function applyServerDocuments(documents: DocumentRow[], sink: DocumentsSink) {
+  sink.setDocs(documents);
+  sink.clearCommitted(new Set(documents.map((doc) => doc.id)));
 
   const nextSignature = documentsSignature(documents);
-  if (nextSignature === docsSignatureRef.current) return;
-  docsSignatureRef.current = nextSignature;
-  onDocumentsChangedRef.current?.();
+  if (nextSignature === sink.docsSignatureRef.current) return;
+  sink.docsSignatureRef.current = nextSignature;
+  sink.onDocumentsChangedRef.current?.();
 }
 
 function documentsSignature(documents: DocumentRow[]): string {

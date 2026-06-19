@@ -91,6 +91,7 @@ export function RoomTranscript({
           <div className="px-5.5 pt-1.5 pb-3.5">
             {group.postings.map((posting, idx) => (
               <Posting
+                // biome-ignore lint/suspicious/noArrayIndexKey: transcript is append-only and never reordered, so position is a stable key
                 key={`${group.key}:${idx}`}
                 posting={posting}
                 tone={tone}

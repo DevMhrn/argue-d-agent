@@ -465,6 +465,21 @@ interface PlacedNode extends LedgerNode {
   r: number;
 }
 
+/** An edge whose endpoints have been resolved to placed nodes (both present). */
+interface PlacedEdge {
+  key: string;
+  kind: LedgerEdge["kind"];
+  a: PlacedNode;
+  b: PlacedNode;
+}
+
+/** Everything the graph needs to render, computed once from the raw ledger. */
+interface GraphLayout {
+  placed: PlacedNode[];
+  edges: PlacedEdge[];
+  viewBox: string;
+}
+
 /** Tint a node by its family/type (mirrors the comp's per-type fills). */
 function nodeTint(type: NodeType): { fill: string; stroke: string } {
   switch (type) {
@@ -532,6 +547,28 @@ function layout(nodes: LedgerNode[]): PlacedNode[] {
   return placed;
 }
 
+/**
+ * Pure layout pass: place nodes on the deterministic radial rings, then resolve
+ * each edge's endpoints to placed nodes (dropping edges that reference a node
+ * not in this set). Returns the placed nodes, resolved edges, and the SVG
+ * viewBox so the renderer stays a thin pass over already-computed geometry.
+ */
+function computeGraphLayout(
+  nodes: LedgerNode[],
+  edges: LedgerEdge[],
+): GraphLayout {
+  const placed = layout(nodes);
+  const byId = new Map(placed.map((n) => [n.id, n]));
+  const resolved: PlacedEdge[] = [];
+  for (const e of edges) {
+    const a = byId.get(e.fromId);
+    const b = byId.get(e.toId);
+    if (!a || !b) continue;
+    resolved.push({ key: e.key, kind: e.kind, a, b });
+  }
+  return { placed, edges: resolved, viewBox: `0 0 ${VIEW_W} ${VIEW_H}` };
+}
+
 function GraphMode({
   nodes,
   edges,
@@ -548,89 +585,120 @@ function GraphMode({
       </p>
     );
   }
-  const placed = layout(nodes);
-  const byId = new Map(placed.map((n) => [n.id, n]));
+  const {
+    placed,
+    edges: placedEdges,
+    viewBox,
+  } = computeGraphLayout(nodes, edges);
 
   return (
     <div className="p-2.5">
       <svg
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+        viewBox={viewBox}
         role="img"
         aria-label="Evidence ledger relationship graph"
         className="block h-auto w-full"
       >
-        {edges.map((e) => {
-          const a = byId.get(e.fromId);
-          const b = byId.get(e.toId);
-          if (!a || !b) return null;
-          const stroke =
-            e.kind === "corroborates"
-              ? "var(--color-ok)"
-              : e.kind === "contradicts"
-                ? "var(--color-bad)"
-                : "var(--color-muted-2)";
-          return (
-            <line
-              key={e.key}
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              stroke={stroke}
-              strokeWidth={e.kind === "relates" ? 1 : 1.5}
-              strokeDasharray={
-                e.kind === "contradicts"
-                  ? "4 3"
-                  : e.kind === "relates"
-                    ? "3 3"
-                    : undefined
-              }
-            />
-          );
-        })}
-        {placed.map((n) => {
-          const tint = nodeTint(n.type);
-          const hl = n.id === highlightFact;
-          return (
-            <g key={n.id}>
-              {hl ? (
-                <circle
-                  cx={n.x}
-                  cy={n.y}
-                  r={n.r + 6}
-                  fill="none"
-                  stroke="var(--color-accent)"
-                  strokeWidth={1.5}
-                  opacity={0.6}
-                />
-              ) : null}
+        <GraphEdges edges={placedEdges} />
+        <GraphNodes nodes={placed} highlightFact={highlightFact} />
+      </svg>
+      <GraphLegend />
+    </div>
+  );
+}
+
+/** Edges layer: one styled line per resolved edge (color/dash by kind). */
+function GraphEdges({ edges }: { edges: PlacedEdge[] }) {
+  return (
+    <>
+      {edges.map((e) => {
+        const stroke =
+          e.kind === "corroborates"
+            ? "var(--color-ok)"
+            : e.kind === "contradicts"
+              ? "var(--color-bad)"
+              : "var(--color-muted-2)";
+        return (
+          <line
+            key={e.key}
+            x1={e.a.x}
+            y1={e.a.y}
+            x2={e.b.x}
+            y2={e.b.y}
+            stroke={stroke}
+            strokeWidth={e.kind === "relates" ? 1 : 1.5}
+            strokeDasharray={
+              e.kind === "contradicts"
+                ? "4 3"
+                : e.kind === "relates"
+                  ? "3 3"
+                  : undefined
+            }
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** Nodes layer: per-type tinted circle + label, with a highlight glow ring. */
+function GraphNodes({
+  nodes,
+  highlightFact,
+}: {
+  nodes: PlacedNode[];
+  highlightFact: string | null;
+}) {
+  return (
+    <>
+      {nodes.map((n) => {
+        const tint = nodeTint(n.type);
+        const hl = n.id === highlightFact;
+        return (
+          <g key={n.id}>
+            {hl ? (
               <circle
                 cx={n.x}
                 cy={n.y}
-                r={n.r}
-                fill={hl ? "rgba(111,155,240,0.18)" : tint.fill}
-                stroke={hl ? "var(--color-accent)" : tint.stroke}
+                r={n.r + 6}
+                fill="none"
+                stroke="var(--color-accent)"
                 strokeWidth={1.5}
+                opacity={0.6}
               />
-              <text
-                x={n.x}
-                y={n.y + 3}
-                textAnchor="middle"
-                fontSize={9}
-                fontFamily="Geist Mono, monospace"
-                fill={hl ? "var(--color-accent-strong)" : "var(--color-text)"}
-              >
-                {n.type === "Statute" ? "§" : n.id}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="flex justify-center gap-3.5 pt-2 pb-1 font-mono text-[10px] text-muted-2">
-        <LegendItem color="var(--color-ok)">corroborates</LegendItem>
-        <LegendItem color="var(--color-bad)">contradicts</LegendItem>
-        <LegendItem color="var(--color-muted-2)">relates</LegendItem>
-      </div>
+            ) : null}
+            <circle
+              cx={n.x}
+              cy={n.y}
+              r={n.r}
+              fill={hl ? "rgba(111,155,240,0.18)" : tint.fill}
+              stroke={hl ? "var(--color-accent)" : tint.stroke}
+              strokeWidth={1.5}
+            />
+            <text
+              x={n.x}
+              y={n.y + 3}
+              textAnchor="middle"
+              fontSize={9}
+              fontFamily="Geist Mono, monospace"
+              fill={hl ? "var(--color-accent-strong)" : "var(--color-text)"}
+            >
+              {n.type === "Statute" ? "§" : n.id}
+            </text>
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
+/** The fixed edge-kind key shown under the graph. */
+function GraphLegend() {
+  return (
+    <div className="flex justify-center gap-3.5 pt-2 pb-1 font-mono text-[10px] text-muted-2">
+      <LegendItem color="var(--color-ok)">corroborates</LegendItem>
+      <LegendItem color="var(--color-bad)">contradicts</LegendItem>
+      <LegendItem color="var(--color-muted-2)">relates</LegendItem>
     </div>
   );
 }
