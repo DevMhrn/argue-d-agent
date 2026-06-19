@@ -100,7 +100,7 @@ export default function NewCasePage() {
       {
         id: uid(),
         role: "lumen",
-        text: "Let's build a new case. Fill in the basics or just type the case context — I'll capture it.",
+        text: "I'm Lumen. I'll open the file, extract your evidence, and build a locked ledger before any agent argues. Start with the basics:",
       },
     ]);
   }, []);
@@ -395,12 +395,31 @@ function NewCaseFeed({
 }) {
   return (
     <div ref={feedRef} className="flex-1 overflow-auto">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-8">
-        {messages.map((message) => (
-          <ChatMessageBubble key={message.id} msg={message} />
-        ))}
-        <FailedUploadNotice show={anyFailed} />
+      <div
+        className="mx-auto w-full"
+        style={{ maxWidth: "780px", padding: "32px 24px 80px" }}
+      >
+        <IntakeHeader />
+        <div className="flex flex-col gap-4.5">
+          {messages.map((message) => (
+            <ChatMessageBubble key={message.id} msg={message} />
+          ))}
+          <FailedUploadNotice show={anyFailed} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+function IntakeHeader() {
+  return (
+    <div className="mb-6.5">
+      <div className="mb-2 font-mono text-[11px] text-muted-2 uppercase tracking-[0.14em]">
+        New case · intake
+      </div>
+      <h1 className="m-0 font-semibold text-[26px] text-text tracking-[-0.02em]">
+        Open a recovery file
+      </h1>
     </div>
   );
 }
@@ -409,7 +428,15 @@ function FailedUploadNotice({ show }: { show: boolean }) {
   if (!show) return null;
 
   return (
-    <div className="rounded-pill border border-bad/40 bg-bad/5 px-3 py-2 text-[12px] text-bad">
+    <div
+      className="text-[12px] text-bad"
+      style={{
+        padding: "10px 14px",
+        borderRadius: "10px",
+        border: "1px solid rgba(198,106,90,0.4)",
+        background: "rgba(198,106,90,0.06)",
+      }}
+    >
       One or more files failed. Remove and re-drop, or check the worker logs.
     </div>
   );
@@ -429,7 +456,10 @@ function NewCaseComposer({
   onAttach: (files: File[]) => void;
 }) {
   return (
-    <div className="sticky bottom-0 border-border border-t bg-bg/80 p-3 backdrop-blur">
+    <div
+      className="sticky bottom-0 border-border-soft border-t px-6 py-3 backdrop-blur"
+      style={{ background: "rgba(21,18,14,0.86)" }}
+    >
       <ChatComposer
         placeholder={composerPlaceholder(caseRow, upload)}
         onSend={onSend}
@@ -610,10 +640,10 @@ function finalizePromptMessage(
 ): Omit<ChatMessage, "id"> {
   return {
     role: "lumen",
-    text: `All ${fileCount} ${fileNoun(fileCount)} extracted ✓ — ready to finalize ingestion and hand off to the ledger lane.`,
+    text: `All ${fileCount} ${fileNoun(fileCount)} extracted ✓ — I've locked the ledger. Ready to convene the band and open the room.`,
     action: {
-      label: "Finalize & open case",
-      tone: "ok",
+      label: "Finalize & open the room →",
+      tone: "primary",
       onClick,
     },
   };
@@ -630,48 +660,37 @@ function CaseMetadataForm({
   onChange: (form: CaseForm) => void;
   onSubmit: () => void;
 }) {
+  const created = phase !== "intake";
+
   return (
-    <div className="grid gap-3">
-      <div className="grid grid-cols-2 gap-2.5">
+    <div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field id="case-title" label="Case title">
+          <input
+            id="case-title"
+            value={form.title}
+            onChange={(e) => onChange({ ...form, title: e.target.value })}
+            placeholder="Rivera v. Blake"
+            className="input"
+          />
+        </Field>
         <Field id="case-id" label="Case ID">
           <input
             id="case-id"
             value={form.case_id}
             onChange={(e) => onChange({ ...form, case_id: e.target.value })}
             placeholder={`CLM-${new Date().getFullYear()}-`}
-            className="input"
+            className="input font-mono text-muted"
           />
         </Field>
-        <Field id="case-jurisdiction" label="Jurisdiction">
-          <input
-            id="case-jurisdiction"
-            value={form.jurisdiction}
-            onChange={(e) =>
-              onChange({ ...form, jurisdiction: e.target.value })
-            }
-            className="input"
-            maxLength={4}
-          />
-        </Field>
-      </div>
-      <Field id="case-title" label="Title">
-        <input
-          id="case-title"
-          value={form.title}
-          onChange={(e) => onChange({ ...form, title: e.target.value })}
-          placeholder="Rivera v. Blake — Red-light T-bone at 5th & Main"
-          className="input"
-        />
-      </Field>
-      <div className="grid grid-cols-2 gap-2.5">
-        <Field id="case-insured" label="Our insured">
+        <Field id="case-insured" label="Insured">
           <input
             id="case-insured"
             value={form.insured_name}
             onChange={(e) =>
               onChange({ ...form, insured_name: e.target.value })
             }
-            placeholder="Alex Rivera"
+            placeholder="Rivera"
             className="input"
           />
         </Field>
@@ -682,28 +701,48 @@ function CaseMetadataForm({
             onChange={(e) =>
               onChange({ ...form, other_party_name: e.target.value })
             }
-            placeholder="Jordan Blake"
+            placeholder="Blake"
             className="input"
           />
         </Field>
+        <Field id="case-jurisdiction" label="Jurisdiction">
+          <input
+            id="case-jurisdiction"
+            value={form.jurisdiction}
+            onChange={(e) =>
+              onChange({ ...form, jurisdiction: e.target.value })
+            }
+            placeholder="CA"
+            maxLength={4}
+            className="input"
+          />
+        </Field>
+        <Field id="case-damages" label="Documented damages (USD)">
+          <input
+            id="case-damages"
+            value={form.damages_usd}
+            onChange={(e) => onChange({ ...form, damages_usd: e.target.value })}
+            placeholder="optional"
+            inputMode="decimal"
+            className="input font-mono text-muted-2"
+          />
+        </Field>
       </div>
-      <Field id="case-damages" label="Documented damages (USD)">
-        <input
-          id="case-damages"
-          value={form.damages_usd}
-          onChange={(e) => onChange({ ...form, damages_usd: e.target.value })}
-          placeholder="42000"
-          inputMode="decimal"
-          className="input"
-        />
-      </Field>
       <button
         type="button"
         onClick={onSubmit}
-        disabled={phase !== "intake"}
-        className="self-start rounded-pill border border-accent/40 bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
+        disabled={created}
+        className="mt-4 font-semibold text-[12.5px] disabled:opacity-50"
+        style={{
+          padding: "9px 16px",
+          borderRadius: "8px",
+          border: "1px solid var(--color-accent-dim)",
+          background: "rgba(111,155,240,0.12)",
+          color: "var(--color-accent-strong)",
+          whiteSpace: "nowrap",
+        }}
       >
-        {phase === "intake" ? "Create case" : "Created ✓"}
+        {created ? "Created ✓" : "Create case"}
       </button>
     </div>
   );
@@ -719,8 +758,8 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label htmlFor={id} className="flex flex-col gap-1">
-      <span className="text-[10.5px] text-muted-2 uppercase tracking-wider">
+    <label htmlFor={id} className="flex flex-col">
+      <span className="mb-1.25 font-mono text-[10.5px] text-muted-2">
         {label}
       </span>
       {children}

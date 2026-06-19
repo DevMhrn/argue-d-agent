@@ -1,11 +1,18 @@
 /**
- * Cases list — the landing page. Renders TWO sources:
- *   1. Real cases in Supabase (post-upload, created via /api/ingest/case).
- *   2. Legacy demo claims from data/cases.json (clean / loser — used by
- *      the canned-mock orchestration in /api/run/:id).
+ * Cases index — the landing page. Renders TWO sources:
+ *   1. Real cases in Supabase (post-upload, created via /api/ingest/case) →
+ *      `db_cases`, shown under "Your cases".
+ *   2. Legacy demo claims from data/cases.json (clean / loser — used by the
+ *      canned-mock orchestration) → `demo_cases`, shown under "Demo cases".
  *
  * The /api/cases endpoint returns both. Real cases land in `db_cases` and
  * have `source: "db"`; demo cases have `source: "demo"`.
+ *
+ * Restyled to the Lumen comp (cases-list, comp lines 784-831): a "Cases" header
+ * with a gradient "+ New case" button, two mono-eyebrow sections, and four-column
+ * grid rows (id+title / parties / status badge / timestamp+damages). Each row is
+ * a <Link> to /cases/{id}. Status badge is derived from the real case fields and
+ * inlined (no dependency on CaseStatusBadge).
  */
 import Link from "next/link";
 import { type CasesResponse, getCases } from "@/lib/api";
@@ -14,20 +21,67 @@ import type { DbCase, LegacyCase } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const STAGE_TONE: Record<DbCase["stage"], string> = {
-  ingesting: "border-warn/40 bg-warn/10 text-warn",
-  ledger: "border-warn/40 bg-warn/10 text-warn",
-  ready: "border-accent/40 bg-accent/10 text-accent",
-  finalized: "border-ok/40 bg-ok/10 text-ok",
-  declined: "border-bad/40 bg-bad/10 text-bad",
-};
+// ---- status badge (font-mono pill) ----------------------------------------
+// Six visual keys, exactly as the comp's `badge()` map (logic lines 1470-1482):
+//   ingesting → amber, ledger → accent, ready → sage outline,
+//   escalate → amber, pursue → sage, decline → brick.
+type BadgeKey =
+  | "ingesting"
+  | "ledger"
+  | "ready"
+  | "escalate"
+  | "pursue"
+  | "decline";
 
-const STAGE_LABEL: Record<DbCase["stage"], string> = {
-  ingesting: "Ingesting",
-  ledger: "Building ledger",
-  ready: "Ready",
-  finalized: "Finalized",
-  declined: "Declined",
+const BADGE: Record<
+  BadgeKey,
+  { label: string; className: string; style?: React.CSSProperties }
+> = {
+  ingesting: {
+    label: "Ingesting",
+    className: "text-warn",
+    style: {
+      borderColor: "rgba(212,164,74,0.4)",
+      background: "rgba(212,164,74,0.1)",
+    },
+  },
+  ledger: {
+    label: "Ledger",
+    className: "text-accent-strong",
+    style: {
+      borderColor: "var(--color-accent-dim)",
+      background: "rgba(111,155,240,0.1)",
+    },
+  },
+  ready: {
+    label: "Ready",
+    className: "text-ok",
+    style: { borderColor: "rgba(110,169,138,0.5)", background: "transparent" },
+  },
+  escalate: {
+    label: "Finalized · Escalate",
+    className: "text-warn",
+    style: {
+      borderColor: "rgba(212,164,74,0.4)",
+      background: "rgba(212,164,74,0.14)",
+    },
+  },
+  pursue: {
+    label: "Finalized · Pursue",
+    className: "text-ok",
+    style: {
+      borderColor: "rgba(110,169,138,0.4)",
+      background: "rgba(110,169,138,0.14)",
+    },
+  },
+  decline: {
+    label: "Finalized · Decline",
+    className: "text-bad",
+    style: {
+      borderColor: "rgba(198,106,90,0.4)",
+      background: "rgba(198,106,90,0.14)",
+    },
+  },
 };
 
 interface CasesPageData {
@@ -42,8 +96,8 @@ export default async function CasesPage() {
   const data = await loadCasesPageData();
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <CasesHeader data={data} />
+    <div className="mx-auto w-full max-w-275 px-6 pt-8 pb-20">
+      <CasesHeader />
       <CasesBody data={data} />
     </div>
   );
@@ -75,75 +129,233 @@ const BACKEND_OFFLINE_DATA: CasesPageData = {
   backendOffline: true,
 };
 
-function CasesHeader({ data }: { data: CasesPageData }) {
+function CasesHeader() {
   return (
-    <div className="flex items-end justify-between gap-6">
+    <div className="mb-7.5 flex items-end justify-between gap-6">
       <div>
-        <h1 className="font-semibold text-2xl tracking-tight">
-          Recovery Operations
-        </h1>
-        <p className="mt-2 max-w-2xl text-muted text-sm">
-          Each case is a subrogation claim. A band of specialist agents builds
-          the recovery argument, the opposing red team attacks it, two
-          adjudicators on different model families decide, and a verifier audits
-          every cited claim.
-        </p>
+        <h1 className="font-semibold text-[30px] tracking-[-0.02em]">Cases</h1>
+        <div className="mt-1.75 text-[13px] text-muted">
+          Subrogation recovery workbench · sorted newest first
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <ModeBadge data={data} />
-        <Link
-          href="/cases/new"
-          className="rounded-pill border border-border bg-accent/15 px-4 py-2 text-accent text-sm hover:bg-accent/25"
-        >
-          + New case
-        </Link>
-      </div>
+      <Link
+        href="/cases/new"
+        className="whitespace-nowrap rounded-pill px-4.25 py-2.5 font-semibold text-[13px] no-underline"
+        style={{
+          background: "linear-gradient(180deg,#6f9bf0,#5b8def)",
+          color: "#0e1320",
+        }}
+      >
+        + New case
+      </Link>
     </div>
   );
-}
-
-function ModeBadge({ data }: { data: CasesPageData }) {
-  const badge = modeBadge(data);
-
-  return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-wider ${badge.className}`}
-    >
-      {badge.label}
-    </span>
-  );
-}
-
-function modeBadge(data: CasesPageData) {
-  if (data.backendOffline) {
-    return {
-      label: "Backend offline",
-      className: "border-bad/40 bg-bad/10 text-bad",
-    };
-  }
-  if (data.mock) {
-    return {
-      label: "Mock mode",
-      className: "border-warn/40 bg-warn/10 text-warn",
-    };
-  }
-  return { label: "Live", className: "border-ok/40 bg-ok/10 text-ok" };
 }
 
 function CasesBody({ data }: { data: CasesPageData }) {
   if (data.backendOffline) return <BackendOfflineNotice />;
 
   return (
-    <div className="mt-10 space-y-10">
-      <DbCasesSection dbCases={data.dbCases} dbError={data.dbError} />
-      <DemoCasesSection demoCases={data.demoCases} />
+    <>
+      <Eyebrow>Your cases</Eyebrow>
+      <DbCasesContent dbCases={data.dbCases} dbError={data.dbError} />
+
+      <Eyebrow>
+        Demo cases{" "}
+        <span className="text-muted-2 normal-case tracking-normal">
+          · bundled fixtures
+        </span>
+      </Eyebrow>
+      <DemoCasesContent demoCases={data.demoCases} />
+    </>
+  );
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-9 mb-3.25 font-mono text-[11px] text-muted-2 uppercase tracking-[0.14em] first:mt-0">
+      {children}
     </div>
   );
 }
 
+function DbCasesContent({
+  dbCases,
+  dbError,
+}: {
+  dbCases: DbCase[];
+  dbError: string | null;
+}) {
+  if (dbError) return <DbError error={dbError} />;
+  if (dbCases.length === 0) return <EmptyDbCases />;
+
+  return (
+    <div className="flex flex-col gap-2.25">
+      {dbCases.map((caseRow) => (
+        <DbCaseRow key={caseRow.id} caseRow={caseRow} />
+      ))}
+    </div>
+  );
+}
+
+function DemoCasesContent({ demoCases }: { demoCases: LegacyCase[] }) {
+  if (demoCases.length === 0) return <EmptyDemoCases />;
+
+  return (
+    <div className="flex flex-col gap-2.25">
+      {demoCases.map((caseRow) => (
+        <DemoCaseRow key={caseRow.id} caseRow={caseRow} />
+      ))}
+    </div>
+  );
+}
+
+// ---- rows ------------------------------------------------------------------
+
+const ROW_CLASS =
+  "grid items-center gap-[18px] rounded-card border border-border-soft bg-panel px-[18px] py-[15px] no-underline transition-colors hover:border-accent";
+const ROW_GRID: React.CSSProperties = {
+  gridTemplateColumns: "200px 1fr 168px 96px",
+};
+
+function DbCaseRow({ caseRow }: { caseRow: DbCase }) {
+  const badgeKey = dbBadgeKey(caseRow);
+
+  return (
+    <Link
+      href={`/cases/${encodeURIComponent(caseRow.id)}`}
+      className={ROW_CLASS}
+      style={ROW_GRID}
+    >
+      <RowTitle id={caseRow.case_id} title={caseRow.title || caseRow.case_id} />
+      <RowParties parties={dbParties(caseRow)} />
+      <StatusBadge badgeKey={badgeKey} />
+      <RowMeta
+        ts={relativeTime(caseRow.updated_at)}
+        damages={dbDamages(caseRow.damages_usd)}
+      />
+    </Link>
+  );
+}
+
+function DemoCaseRow({ caseRow }: { caseRow: LegacyCase }) {
+  return (
+    <Link
+      href={`/cases/${encodeURIComponent(caseRow.id)}`}
+      className={ROW_CLASS}
+      style={ROW_GRID}
+    >
+      <RowTitle id={caseRow.id} title={caseRow.title} />
+      <RowParties parties={caseRow.subtitle ?? ""} />
+      <StatusBadge badgeKey={demoBadgeKey(caseRow.outcome)} />
+      <RowMeta ts="bundled" damages="" />
+    </Link>
+  );
+}
+
+function RowTitle({ id, title }: { id: string; title: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-0.75 truncate font-mono text-[11px] text-muted-2">
+        {id}
+      </div>
+      <div className="truncate font-semibold text-[14px]">{title}</div>
+    </div>
+  );
+}
+
+function RowParties({ parties }: { parties: string }) {
+  if (!parties) return <div />;
+  return (
+    <div className="truncate font-mono text-[12.5px] text-muted">{parties}</div>
+  );
+}
+
+function StatusBadge({ badgeKey }: { badgeKey: BadgeKey }) {
+  const badge = BADGE[badgeKey];
+
+  return (
+    <div>
+      <span
+        className={`whitespace-nowrap rounded-chip border font-medium font-mono text-[10.5px] ${badge.className}`}
+        style={{ padding: "4px 11px", ...badge.style }}
+      >
+        {badge.label}
+      </span>
+    </div>
+  );
+}
+
+function RowMeta({ ts, damages }: { ts: string; damages: string }) {
+  return (
+    <div className="text-right">
+      <div className="font-mono text-[11px] text-muted-2">{ts}</div>
+      {damages ? (
+        <div className="mt-0.5 text-[10.5px] text-muted-2">{damages}</div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---- derivations -----------------------------------------------------------
+
+/**
+ * Map a real (Supabase) case to one of the six badge keys. Finalized cases
+ * resolve by disposition (decline vs escalate — the list-shape `DbCase` carries
+ * no fault metadata, so a settled recovery reads "Escalate" per the comp);
+ * everything else falls through the ingest → ledger → ready ladder using the
+ * canonical `stage` field plus the underlying completion booleans.
+ */
+function dbBadgeKey(c: DbCase): BadgeKey {
+  if (c.stage === "declined") return "decline";
+  if (c.finalized || c.stage === "finalized") return "escalate";
+  if (c.stage === "ready" || c.ledger_complete) return "ready";
+  if (c.stage === "ledger" || c.ingestion_complete) return "ledger";
+  return "ingesting";
+}
+
+function demoBadgeKey(outcome?: string): BadgeKey {
+  if (outcome === "decline") return "decline";
+  if (outcome === "pursue") return "pursue";
+  if (outcome === "escalate") return "escalate";
+  return "ready";
+}
+
+function dbParties(c: DbCase): string {
+  if (c.insured_name && c.other_party_name) {
+    return `${c.insured_name} vs ${c.other_party_name}`;
+  }
+  return c.insured_name ?? c.other_party_name ?? c.jurisdiction;
+}
+
+function dbDamages(damages: number | null): string {
+  if (damages == null) return "";
+  return `$${damages.toLocaleString("en-US")} documented`;
+}
+
+/** Compact "2m ago" / "1h ago" / "just now" relative time, like the comp. */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// ---- empty / error / offline states ----------------------------------------
+
 function BackendOfflineNotice() {
   return (
-    <div className="mt-10 rounded-card border border-bad/40 bg-bad/5 p-6 text-muted text-sm">
+    <div className="mt-9 rounded-card border border-bad/40 bg-bad/5 p-6 text-[13px] text-muted">
       <p className="font-medium text-bad">Cannot reach the FastAPI backend.</p>
       <p className="mt-2">
         Start it with <InlineCode>./run.sh server</InlineCode> (or{" "}
@@ -161,52 +373,6 @@ function InlineCode({ children }: { children: string }) {
   );
 }
 
-function DbCasesSection({
-  dbCases,
-  dbError,
-}: {
-  dbCases: DbCase[];
-  dbError: string | null;
-}) {
-  return (
-    <section>
-      <SectionHeader
-        title="Your cases"
-        meta={`${dbCases.length} stored in Supabase`}
-      />
-      <DbCasesContent dbCases={dbCases} dbError={dbError} />
-    </section>
-  );
-}
-
-function DbCasesContent({
-  dbCases,
-  dbError,
-}: {
-  dbCases: DbCase[];
-  dbError: string | null;
-}) {
-  if (dbError) return <DbError error={dbError} />;
-  if (dbCases.length === 0) return <EmptyDbCases />;
-
-  return (
-    <ul className="grid gap-3">
-      {dbCases.map((caseRow) => (
-        <DbCaseCard key={caseRow.id} caseRow={caseRow} />
-      ))}
-    </ul>
-  );
-}
-
-function SectionHeader({ title, meta }: { title: string; meta: string }) {
-  return (
-    <header className="mb-3 flex items-baseline justify-between">
-      <h2 className="font-semibold text-base text-text">{title}</h2>
-      <span className="text-[12px] text-muted-2">{meta}</span>
-    </header>
-  );
-}
-
 function DbError({ error }: { error: string }) {
   return (
     <div className="rounded-card border border-bad/40 bg-bad/5 p-4 text-[13px] text-bad">
@@ -217,7 +383,7 @@ function DbError({ error }: { error: string }) {
 
 function EmptyDbCases() {
   return (
-    <div className="rounded-card border border-border bg-panel p-8 text-center text-muted text-sm">
+    <div className="rounded-card border border-border-soft bg-panel p-8 text-center text-[13px] text-muted">
       <p>No cases yet.</p>
       <p className="mt-1.5 text-[12px] text-muted-2">
         Click <span className="text-text">+ New case</span> to upload evidence
@@ -227,155 +393,10 @@ function EmptyDbCases() {
   );
 }
 
-function DbCaseCard({ caseRow }: { caseRow: DbCase }) {
+function EmptyDemoCases() {
   return (
-    <li>
-      <Link
-        href={`/cases/${encodeURIComponent(caseRow.id)}`}
-        className="flex items-start justify-between gap-6 rounded-card border border-border bg-panel p-5 shadow-card transition-colors hover:border-accent"
-      >
-        <DbCaseDetails caseRow={caseRow} />
-        <CaseStageBadge stage={caseRow.stage} />
-      </Link>
-    </li>
-  );
-}
-
-function DbCaseDetails({ caseRow }: { caseRow: DbCase }) {
-  return (
-    <div className="min-w-0 flex-1">
-      <div className="font-medium">{caseRow.title || caseRow.case_id}</div>
-      <DbCaseFacts caseRow={caseRow} />
-      <DbCaseMeta caseRow={caseRow} />
+    <div className="rounded-card border border-border-soft bg-panel p-6 text-center text-[12px] text-muted-2">
+      No bundled fixtures available.
     </div>
   );
-}
-
-function DbCaseFacts({ caseRow }: { caseRow: DbCase }) {
-  return (
-    <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[12px] text-muted">
-      <OptionalFact label="Insured" value={caseRow.insured_name} />
-      <OptionalFact label="Other party" value={caseRow.other_party_name} />
-      <Fact label="Jurisdiction" value={caseRow.jurisdiction} />
-      <OptionalFact
-        label="Damages"
-        value={caseRow.damages_usd?.toLocaleString("en-US")}
-        prefix="$"
-        mono
-      />
-    </div>
-  );
-}
-
-function Fact({
-  label,
-  value,
-  prefix = "",
-  mono,
-}: {
-  label: string;
-  value: string;
-  prefix?: string;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <span className="text-muted-2">{label}: </span>
-      <span className={mono ? "font-mono" : ""}>
-        {prefix}
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function OptionalFact({
-  value,
-  ...props
-}: Omit<Parameters<typeof Fact>[0], "value"> & { value?: string | null }) {
-  return value ? <Fact {...props} value={value} /> : null;
-}
-
-function DbCaseMeta({ caseRow }: { caseRow: DbCase }) {
-  return (
-    <div className="mt-2 flex items-baseline gap-3">
-      <span className="font-mono text-[11px] text-muted-2">
-        {caseRow.case_id}
-      </span>
-      <span className="font-mono text-[11px] text-muted-2">
-        · {caseRow.id.slice(0, 8)}
-      </span>
-      <span className="text-[11px] text-muted-2">
-        · updated {new Date(caseRow.updated_at).toLocaleString()}
-      </span>
-    </div>
-  );
-}
-
-function CaseStageBadge({ stage }: { stage: DbCase["stage"] }) {
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${STAGE_TONE[stage]}`}
-    >
-      {STAGE_LABEL[stage]}
-    </span>
-  );
-}
-
-function DemoCasesSection({ demoCases }: { demoCases: LegacyCase[] }) {
-  return (
-    <section>
-      <SectionHeader
-        title="Demo cases"
-        meta="deterministic mock-mode sample claims · runs the live debate"
-      />
-      <ul className="grid gap-3">
-        {demoCases.map((caseRow) => (
-          <DemoCaseCard key={caseRow.id} caseRow={caseRow} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function DemoCaseCard({ caseRow }: { caseRow: LegacyCase }) {
-  return (
-    <li>
-      <Link
-        href={`/cases/${encodeURIComponent(caseRow.id)}`}
-        className="flex items-start justify-between gap-6 rounded-card border border-border bg-panel p-5 shadow-card transition-colors hover:border-accent"
-      >
-        <div className="min-w-0">
-          <div className="font-medium">{caseRow.title}</div>
-          {caseRow.subtitle ? (
-            <div className="mt-1 text-[13px] text-muted">
-              {caseRow.subtitle}
-            </div>
-          ) : null}
-          <div className="mt-2 font-mono text-[11px] text-muted-2">
-            {caseRow.id}
-          </div>
-        </div>
-        <DemoOutcome outcome={caseRow.outcome} />
-      </Link>
-    </li>
-  );
-}
-
-function DemoOutcome({ outcome }: { outcome?: string }) {
-  if (!outcome) return null;
-
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${demoOutcomeTone(outcome)}`}
-    >
-      {outcome}
-    </span>
-  );
-}
-
-function demoOutcomeTone(outcome: string) {
-  return outcome === "decline"
-    ? "border-bad/40 bg-bad/10 text-bad"
-    : "border-accent/40 bg-accent/10 text-accent";
 }

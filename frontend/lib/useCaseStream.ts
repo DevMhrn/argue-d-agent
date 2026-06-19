@@ -39,6 +39,9 @@ export function useCaseStream(
   const [status, setStatus] = useState<CaseStatusEvent | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
 
+  // reopenKey is intentionally in deps: bumping it forces a teardown + re-subscribe
+  // to the case event stream (used after a run completes).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reopenKey drives re-subscription, not referenced in the body
   useEffect(() => {
     if (!enabled || !caseId) return;
 
@@ -64,6 +67,9 @@ export function useCaseStream(
     src.onerror = close;
 
     return close;
+    // reopenKey is intentionally a dependency: bumping it forces the effect to
+    // tear down and re-subscribe to the case event stream (used after a run).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: reopenKey drives re-subscription, not used in the body
   }, [caseId, enabled, reopenKey]);
 
   return status;
