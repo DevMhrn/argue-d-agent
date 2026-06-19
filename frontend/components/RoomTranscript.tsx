@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { RoomPosting } from "@/lib/types";
+import type { PostingMetadata, RoomPosting } from "@/lib/types";
 
 const AGENT_META: Record<string, { role: string; color: string }> = {
   "Intake Parser": {
@@ -45,6 +45,11 @@ const FALLBACK_META = {
 
 type PostingTone = "argument" | "room";
 type GateState = "ok" | "fail" | "none";
+type VerdictTone = "ok" | "fail";
+interface ContextLabel {
+  key: string;
+  label: string;
+}
 
 interface RoomTranscriptProps {
   postings: RoomPosting[];
@@ -74,7 +79,7 @@ export function RoomTranscript({
         <ol className="space-y-3">
           {postings.map((posting) => (
             <Posting
-              key={`${posting.at ?? "na"}:${posting.agent}:${posting.kind}:${posting.content}`}
+              key={`${posting.seq ?? posting.at ?? "na"}:${posting.agent}:${posting.kind}:${posting.content}`}
               posting={posting}
               tone={tone}
             />
@@ -125,6 +130,7 @@ function Posting({
           {GATE_ICON[gateState]}
         </span>
       </header>
+      <PostingContext posting={posting} />
       <p className="whitespace-pre-wrap text-[13px] text-text leading-relaxed">
         {posting.content}
       </p>
@@ -137,17 +143,76 @@ function AgentRole({ role }: { role: string }) {
   return <span className="text-[11px] text-muted-2">{role}</span>;
 }
 
+function PostingContext({ posting }: { posting: RoomPosting }) {
+  const labels = postingContextLabels(posting.metadata);
+  if (labels.length === 0) return null;
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {labels.map((item) => (
+        <span
+          key={item.key}
+          className="rounded-full border border-border-soft bg-panel px-2 py-0.5 text-[10.5px] text-muted-2"
+        >
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function agentMeta(agent: string) {
   return AGENT_META[agent] || FALLBACK_META;
 }
 
 function gateStateOf(posting: RoomPosting): GateState {
   if (posting.kind !== "gate") return "none";
-  return getGateState(posting.content);
+  return (
+    verdictGateState(posting.metadata?.gate?.verdict) ??
+    getGateState(posting.content)
+  );
+}
+
+const VERDICT_GATE_STATE: Record<string, VerdictTone> = {
+  rejected: "fail",
+  decline: "fail",
+  passed: "ok",
+  warning: "ok",
+  escalated: "ok",
+};
+
+function verdictGateState(verdict?: string) {
+  return verdict ? VERDICT_GATE_STATE[verdict] : undefined;
+}
+
+function postingContextLabels(metadata?: PostingMetadata): ContextLabel[] {
+  if (!metadata) return [];
+  return [
+    contextLabel("issue", metadata.issue_title),
+    contextLabel("phase", labelFromSnake(metadata.phase)),
+    contextLabel("turn", labelFromSnake(metadata.turn_type)),
+    contextLabel(
+      "tool",
+      metadata.tool?.name ? `tool: ${metadata.tool.name}` : null,
+    ),
+  ].filter((item): item is ContextLabel => Boolean(item));
+}
+
+function contextLabel(key: string, label?: string | null): ContextLabel | null {
+  return label ? { key: `${key}:${label}`, label } : null;
 }
 
 function getGateState(content: string): Exclude<GateState, "none"> {
   return /⛔|fail|reject/i.test(content) ? "fail" : "ok";
+}
+
+function labelFromSnake(value?: string) {
+  if (!value) return null;
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 const GATE_ICON: Record<GateState, string> = {

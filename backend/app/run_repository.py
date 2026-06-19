@@ -118,9 +118,9 @@ class RunRepository:
             row = await conn.fetchrow(
                 """
                 insert into transcript (
-                  case_id, run_id, seq, agent_name, color, kind, content
+                  case_id, run_id, seq, agent_name, color, kind, content, metadata
                 )
-                values ($1, $2, $3, $4, $5, $6, $7)
+                values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
                 returning *
                 """,
                 payload.case_id,
@@ -130,6 +130,7 @@ class RunRepository:
                 payload.color,
                 payload.kind,
                 payload.content,
+                json.dumps(payload.metadata),
             )
             return self._row_to_transcript(row)
 
@@ -142,13 +143,13 @@ class RunRepository:
                 """
                 insert into decisions (
                   case_id, run_id, other_driver_fault_pct, confidence, recovery_usd,
-                  escalate, escalate_reasons, near_fifty_fifty,
+                  escalate, escalate_reasons, outcome, pursue, decline_reason, near_fifty_fifty,
                   consensus_type, consensus_delta, fault_table, reasoning,
                   secondary_decision, letter, audit_hash
                 )
                 values (
                   $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10,
-                  $11::jsonb, $12, $13::jsonb, $14, $15
+                  $11, $12, $13, $14::jsonb, $15, $16::jsonb, $17, $18
                 )
                 returning *
                 """,
@@ -159,6 +160,9 @@ class RunRepository:
                 payload.recovery_usd,
                 payload.escalate,
                 json.dumps(payload.escalate_reasons),
+                payload.outcome,
+                payload.pursue,
+                payload.decline_reason,
                 payload.near_fifty_fifty,
                 payload.consensus_type,
                 payload.consensus_delta,
@@ -268,6 +272,7 @@ class RunRepository:
             color=r["color"],
             kind=r["kind"],
             content=r["content"],
+            metadata=_jsonb(r["metadata"]) or {},
             posted_at=r["posted_at"],
             created_at=r["created_at"],
             updated_at=r["updated_at"],
@@ -287,6 +292,9 @@ class RunRepository:
             recovery_usd=r["recovery_usd"],
             escalate=r["escalate"],
             escalate_reasons=_jsonb(r["escalate_reasons"]) or [],
+            outcome=r["outcome"],
+            pursue=r["pursue"],
+            decline_reason=r["decline_reason"],
             near_fifty_fifty=r["near_fifty_fifty"],
             consensus_type=r["consensus_type"],
             consensus_delta=r["consensus_delta"],

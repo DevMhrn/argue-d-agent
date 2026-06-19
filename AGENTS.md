@@ -25,7 +25,7 @@ The legacy TypeScript demo (`src/`, `server/`) follows the original conventions:
 
 ## Testing Guidelines
 
-No dedicated test framework is currently present. Before reporting current-flow changes as complete, run `./run.sh typecheck`, `./run.sh demo`, and relevant frontend checks from `frontend/` such as `pnpm exec tsc --noEmit` and `pnpm build`. Only run root `pnpm typecheck` or `pnpm demo` when the legacy TypeScript demo is in scope. When adding tests, start with focused tests for pure modules, especially schema parsing and gate behavior. Use behavior-focused names, for example `citationGate rejects unknown ids`.
+Use focused `unittest` modules for active Python backend behavior. Before reporting current-flow changes as complete, run `./run.sh typecheck`, `./run.sh demo`, focused backend tests such as `python -m unittest backend.app.test_courtroom backend.app.test_orchestration_tools backend.app.test_room backend.app.test_pipeline_safety backend.app.test_run_repository backend.schemas.test_transcript -v`, and relevant frontend checks from `frontend/` such as `pnpm exec tsc --noEmit` and `pnpm build`. Only run root `pnpm typecheck` or `pnpm demo` when the legacy TypeScript demo is in scope. When adding tests, start with focused tests for pure modules, especially schema parsing and gate behavior. Use behavior-focused names, for example `citationGate rejects unknown ids`.
 
 ## Commit & Pull Request Guidelines
 

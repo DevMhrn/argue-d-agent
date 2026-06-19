@@ -55,7 +55,7 @@ Real cases come from Supabase and are labeled with `source: "db"`. The staged fl
 6. Finalize ingestion with `POST /api/ingest/finalize/{case_id}` when needed.
 7. Wait for the ledger lane to write nodes/edges and set `ledger_complete=true`.
 8. Open the Argument Room once the ledger is locked.
-9. Stream a run with `GET /api/run/{case_id}`; real UUID runs persist `runs`, `transcript`, and `decisions`.
+9. Stream a courtroom run with `GET /api/run/{case_id}`; real UUID runs persist `runs`, structured `transcript` metadata, and `decisions`.
 10. Replay prior terminal runs with `GET /api/runs/{run_id}/transcript`; the detail page fetches run history with `GET /api/cases/{case_id}/runs` on mount.
 
 `frontend/lib/types.ts` mirrors backend Pydantic response shapes by hand. Update it whenever the FastAPI contract changes.
@@ -74,10 +74,10 @@ Images, audio, scanned PDFs, old `.doc`, spreadsheets, and video are roadmap ite
 ## Checks
 
 ```bash
-pnpm lint
+pnpm exec tsc --noEmit
 pnpm build
 ```
 
-Run these inside `frontend/`. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.
+Run these inside `frontend/`. The current `pnpm lint` script is mutating because it runs `biome check --write --unsafe .`; use it only when you intend to apply formatting fixes. If pnpm v11 blocks a very recent transitive lockfile entry during local verification, rerun the command with `PNPM_CONFIG_MINIMUM_RELEASE_AGE=0` after checking the blocked package/version in the error output. The repo root `pnpm typecheck` covers only the legacy TypeScript demo.
 
 Repo-level Fallow and React Compiler checks are listed in [`../AGENTS.md`](../AGENTS.md#fallow-local-gate).

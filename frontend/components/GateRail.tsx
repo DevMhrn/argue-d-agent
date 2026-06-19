@@ -8,21 +8,22 @@ import type { RoomPosting } from "@/lib/types";
  * into stages so the rail stays in lockstep with the live debate.
  */
 const STAGES = [
-  { key: "intake", label: "Intake" },
+  { key: "docket", label: "Docket" },
   { key: "evidence", label: "Evidence + Fact Gate" },
-  { key: "debate", label: "Debate + Citation Gate" },
-  { key: "adjudication", label: "Adjudication + Math + Consensus" },
-  { key: "alignment", label: "Source-Alignment" },
-  { key: "letter", label: "Letter + Reconciliation" },
+  { key: "hearing", label: "Opening + Hearing" },
+  { key: "adjudication", label: "Adjudication + Gates" },
+  { key: "alignment", label: "Source Alignment" },
+  { key: "letter", label: "Draft + Reconciliation" },
 ] as const;
 
 const STAGE_OF: Record<string, (typeof STAGES)[number]["key"]> = {
-  "Intake Parser": "intake",
+  System: "docket",
+  "Intake Parser": "docket",
   "Evidence Aggregator": "evidence",
   "Fact Gate": "evidence",
-  "Liability Advocate": "debate",
-  "Opposing-Carrier Red Team": "debate",
-  "Citation Gate": "debate",
+  "Liability Advocate": "hearing",
+  "Opposing-Carrier Red Team": "hearing",
+  "Citation Gate": "hearing",
   "Adjudicator A": "adjudication",
   "Adjudicator B": "adjudication",
   "Math Gate": "adjudication",
@@ -32,12 +33,41 @@ const STAGE_OF: Record<string, (typeof STAGES)[number]["key"]> = {
   "Letter Reconciliation": "letter",
 };
 
+const PHASE_STAGE: Record<string, StageKey> = {
+  docket: "docket",
+  intake: "docket",
+  evidence: "evidence",
+  fact_gate: "evidence",
+  ledger_lock: "evidence",
+  opening_briefs: "hearing",
+  issue_hearing: "hearing",
+  tool_use: "hearing",
+  cross_examination: "hearing",
+  redirect: "hearing",
+  adjudication: "adjudication",
+  math_gate: "adjudication",
+  consensus_gate: "adjudication",
+  source_alignment: "alignment",
+  disposition: "alignment",
+  drafting: "letter",
+  letter_gate: "letter",
+};
+
 type StageKey = (typeof STAGES)[number]["key"];
 type GateState = "failed" | "active" | "pending";
+type VerdictState = "failed" | "passed";
 interface GateProgress {
   reached: Set<StageKey>;
   failed: StageKey | null;
 }
+
+const VERDICT_STATE: Record<string, VerdictState> = {
+  rejected: "failed",
+  decline: "failed",
+  passed: "passed",
+  warning: "passed",
+  escalated: "passed",
+};
 
 export function GateRail({ postings }: { postings: RoomPosting[] }) {
   const progress = gateProgress(postings);
@@ -65,7 +95,7 @@ function emptyGateProgress(): GateProgress {
 }
 
 function advanceGateProgress(progress: GateProgress, posting: RoomPosting) {
-  const key = STAGE_OF[posting.agent];
+  const key = stageOfPosting(posting);
   if (!key) return progress;
 
   progress.reached.add(key);
@@ -74,7 +104,22 @@ function advanceGateProgress(progress: GateProgress, posting: RoomPosting) {
 }
 
 function isFailedGate(posting: RoomPosting) {
+  const state = verdictState(posting.metadata?.gate?.verdict);
+  return state ? state === "failed" : legacyFailedGate(posting);
+}
+
+function verdictState(verdict?: string) {
+  return verdict ? VERDICT_STATE[verdict] : undefined;
+}
+
+function legacyFailedGate(posting: RoomPosting) {
   return posting.kind === "gate" && /⛔|fail|reject/i.test(posting.content);
+}
+
+function stageOfPosting(posting: RoomPosting): StageKey | undefined {
+  const phase = posting.metadata?.phase;
+  if (phase && PHASE_STAGE[phase]) return PHASE_STAGE[phase];
+  return STAGE_OF[posting.agent];
 }
 
 function gateState(key: StageKey, progress: GateProgress): GateState {

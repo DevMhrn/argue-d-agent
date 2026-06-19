@@ -85,7 +85,9 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
   }
 
   function onRejected(rejected: FileRejection[]) {
-    const list = rejected.map((r) => `${r.file.name} — ${r.message}`).join("; ");
+    const list = rejected
+      .map((r) => `${r.file.name} — ${r.message}`)
+      .join("; ");
     setRejectedNote(`Can't ingest: ${list}`);
     window.setTimeout(() => setRejectedNote(null), 6000);
   }

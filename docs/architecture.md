@@ -14,7 +14,7 @@ flowchart LR
   STORE --> LEDGER["Ledger Lane\nbackend/ledger/"]
   LEDGER --> GRAPH["Evidence Graph\nnodes + edges"]
   GRAPH --> ROOM["Argument Room\nbackend/app/pipeline.py"]
-  ROOM --> PACKET["Recovery Packet\ndecision + letter + transcript"]
+  ROOM --> PACKET["Recovery Packet\ndecision + letter + structured transcript"]
 
   subgraph HARNESS["Harness - code gates"]
     FACT["Fact Gate"]
@@ -46,7 +46,7 @@ The frontend shows two case sources through the same API surface:
 
 The ledger handoff is wired: when ingestion flips `ingestion_complete=true`, the winning worker enqueues the arq job `run_ledger_build`, which reads the case's documents/pages/statutes, builds the typed graph, writes `nodes`/`edges` via asyncpg, and flips `ledger_complete=true` (see `backend/ledger/service.py`, `db_repository.py`, `jobs.py`). That opens the Argument Room in the UI.
 
-`GET /api/run/{case_id}` runs the debate for **both** sources. Demo ids (`clean`/`loser`) build their ledger from the bundled claim and stream in-memory. Real UUIDs run the debate **over the persisted graph**: `backend/ledger/service.py::load_run_inputs` reconstructs the claim from `documents`/`document_pages`, loads statutes, and projects the stored Fact `nodes` into an `EvidenceLedger`; `run_lumen(..., ledger=...)` then skips the rebuild and argues over those facts. The server requires `ledger_complete=true` (returns 409 otherwise). On the UUID path, orchestration inserts a `runs` row, persists every room posting to `transcript`, inserts the final `decisions` row, returns `runId`, and exposes replay/history through `GET /api/cases/{case_id}/runs` and `GET /api/runs/{run_id}/transcript`. Human approval persistence and flipping `cases.finalized` remain follow-ups.
+`GET /api/run/{case_id}` runs the courtroom hearing for **both** sources. Demo ids (`clean`/`loser`) build their ledger from the bundled claim and stream in-memory. Real UUIDs run the hearing **over the persisted graph**: `backend/ledger/service.py::load_run_inputs` reconstructs the claim from `documents`/`document_pages`, loads statutes, and projects the stored Fact `nodes` into an `EvidenceLedger`; `run_lumen(..., ledger=...)` then skips the rebuild and argues over those facts. The server requires `ledger_complete=true` (returns 409 otherwise). On the UUID path, orchestration inserts a `runs` row, persists every room posting plus structured metadata to `transcript`, inserts the final `decisions` row, rolls up decision outcome and `last_run_at` onto the case record, returns `runId`, and exposes replay/history through `GET /api/cases/{case_id}/runs` and `GET /api/runs/{run_id}/transcript`. Human approval persistence and flipping `cases.finalized` remain follow-ups.
 
 ## Production Flow
 
@@ -89,9 +89,25 @@ The handoff flags on `cases` are the lane contract:
 | `ledger_complete` | Ledger repository after nodes and edges persist | Argument Room |
 | `finalized` | Future human approval persistence | Closed recovery packet |
 
+## Courtroom Orchestration
+
+The orchestration lane is now a bounded courtroom protocol, not an open-ended agent chat. `backend/app/courtroom.py` deterministically creates a docket from the locked ledger: primary liability, comparative fault, damages, and legal basis. `backend/app/orchestration_tools.py` exposes clerk-side, read-only ledger/statute lookup helpers for the current run. Agents do not get raw shell access or model-native tools yet.
+
+The live sequence in `backend/app/pipeline.py` is:
+
+1. Court Clerk opens the claim and locks the ledger.
+2. Court Clerk posts the issue docket and compact issue packets.
+3. Recovery counsel and defense counsel give independent opening briefs.
+4. For the liability and comparative-fault packets, defense cross-examines and recovery counsel redirects.
+5. Neutral adjudicators decide independently, then Math and Consensus gates run.
+6. Source Alignment verifies cited claims.
+7. Viability, demand drafting, and Letter Reconciliation finish the packet.
+
+Every room posting can carry metadata: phase, actor key, issue key/title, turn type, target actor, citations, gate verdict, and tool summary. The frontend uses this metadata for courtroom labels and replay while preserving the old flat transcript text for readability.
+
 ## Agents And Gates
 
-The orchestration lane still uses the original specialist team, now mirrored in `backend/app/`:
+The orchestration lane still uses the specialist team in `backend/app/`:
 
 | Agent | File | Role |
 |---|---|---|
@@ -104,14 +120,14 @@ The orchestration lane still uses the original specialist team, now mirrored in 
 | Source-Alignment Verifier | `backend/app/agents.py` | Audits cited claims against source facts |
 | Demand Letter Drafter | `backend/app/agents.py` | Writes the demand package |
 
-Model-family defaults live in `backend/app/config.py` and are environment-overridable. Treat those values as configuration defaults only; confirm provider catalog IDs before live runs.
+Model-family defaults live in `backend/app/config.py` and are environment-overridable. Active defaults use OpenAI + Anthropic; Gemini remains configurable but is not part of the current assignment unless an agent is explicitly reassigned. Treat model values as configuration defaults only; confirm provider catalog IDs before live runs.
 
 The code gates are in `backend/app/gates.py` plus the letter reconciliation check in `backend/app/pipeline.py`:
 
 | Gate | What it checks | Failure behavior |
 |---|---|---|
-| Fact Gate | Ledger facts quote exact source text | Blocks bad facts from grounding the debate |
-| Citation Gate | Argument points cite known fact IDs or statute IDs | Retries with visible room warning |
+| Fact Gate | Ledger facts quote exact source text | Records the failure and forces human review if the run continues |
+| Citation Gate | Argument points cite packet-scoped fact IDs or statute IDs | Retries with visible room warning; unresolved failures force human review |
 | Math Gate | Fault percentage matches the adjudicator table within tolerance | Excludes bad adjudicator output and escalates |
 | Source Alignment | Verifier labels cited claims as supported or contradicted | Contradictions feed escalation |
 | Letter Reconciliation | Letter contains the decided fault percentage and recovery amount | Forces escalation if the packet contradicts the decision |
@@ -143,10 +159,10 @@ The legacy TypeScript demo remains available through `pnpm demo`, but it should 
 The active Band seam is `backend/app/room.py`:
 
 - `LocalRoom` is the in-memory mock room.
-- `BandRoom` is the real SDK-backed room.
+- `BandRoom` is the real SDK-backed mirror for agent messages.
 - `make_room()` selects the implementation based on `LUMEN_BAND`.
 
-Pipeline code posts through the same room interface in both modes, so the harness and agent sequencing remain Band-agnostic.
+Pipeline code posts through the same room interface in both modes, so the harness and agent sequencing remain Band-agnostic. The database `transcript` table, not Band, is the authoritative replay and audit store.
 
 ## Code Map
 

@@ -228,7 +228,7 @@ create index if not exists edges_case_id_from_id_type_idx on edges (case_id, fro
 create index if not exists edges_case_id_to_id_type_idx on edges (case_id, to_id, type);
 
 -- ---------------------------------------------------------------------------
--- transcript — Band-room postings persisted per pipeline run.
+-- transcript — room postings persisted per pipeline run.
 -- ---------------------------------------------------------------------------
 -- posted_at is the canonical ordering field (when the agent actually posted).
 -- created_at / updated_at track row lifecycle for consistency with other tables.
@@ -271,6 +271,10 @@ create table if not exists decisions (
   escalate                 boolean not null,
   escalate_reasons         jsonb not null default '[]'::jsonb
                            check (jsonb_typeof(escalate_reasons) = 'array'),
+  outcome                  text not null default 'pursue'
+                           check (outcome in ('pursue', 'escalate', 'decline')),
+  pursue                   boolean not null default true,
+  decline_reason           text,
   near_fifty_fifty         boolean not null,
   consensus_type           text not null
                            check (consensus_type in ('agreement', 'disagreement', 'single', 'none')),
@@ -304,7 +308,7 @@ comment on column cases.tenant_id is
 comment on column cases.case_id is
   'Human-readable identifier (e.g. CLM-2026-0427). Unique within tenant.';
 comment on column cases.last_run_at is
-  'Most recent pipeline run timestamp; denormalized for UI sort. Updated by the orchestrator.';
+  'Most recent pipeline run timestamp; denormalized for UI sort. Reserved until orchestration updates it.';
 comment on column cases.metadata is
   'Free-form JSONB escape hatch for case-level fields (UI hints, integration IDs, labels) that do not warrant a column.';
 
@@ -351,10 +355,14 @@ comment on table edges is
   'Typed graph relationships. mentioned_in (Fact → Document) is the corroboration primitive — one Fact node can have many mentioned_in edges, one per source document that asserts it. This is how we model "same observation across multiple sources" without dedup.';
 
 comment on table transcript is
-  'Band-room postings per pipeline run. (run_id, seq) is the canonical ordering. posted_at is the agent''s post timestamp; created_at is the row insert timestamp (usually identical).';
+  'Room postings per pipeline run. (run_id, seq) is the canonical ordering. posted_at is the posting timestamp; created_at is the row insert timestamp (usually identical).';
 
 comment on table decisions is
   'One row per pipeline run holding the FinalDecision payload. secondary_decision carries Adjudicator B''s full output when dual-adjudication is on. fault_table is the structured {factId, favors, weight}[] array.';
+comment on column decisions.outcome is
+  'Final recommendation: pursue, escalate to human review, or decline/close the file.';
+comment on column decisions.decline_reason is
+  'Human-readable reason when outcome=decline, retained for replay after refresh.';
 comment on column decisions.audit_hash is
   'SHA-256 of (transcript + decision + letter) at finalization. Tamper-evident.';
 

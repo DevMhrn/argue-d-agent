@@ -14,6 +14,8 @@ import type { DecisionResult, RoomPosting } from "./types";
 export type RunState = {
   status: "idle" | "connecting" | "streaming" | "complete" | "error";
   caseId: string | null;
+  activeRunId: string | null;
+  lastSeq: number | null;
   postings: RoomPosting[];
   letter: string;
   decision: DecisionResult | null;
@@ -23,6 +25,7 @@ export type RunState = {
 
 type Action =
   | { type: "start"; caseId: string }
+  | { type: "stream_start"; caseId: string; runId: string | null }
   | { type: "post"; posting: RoomPosting }
   | { type: "letter_chunk"; text: string }
   | { type: "result"; decision: DecisionResult }
@@ -31,6 +34,7 @@ type Action =
   | {
       type: "seed";
       caseId: string;
+      runId?: string | null;
       postings: RoomPosting[];
       decision: DecisionResult | null;
       letter: string;
@@ -48,6 +52,7 @@ interface RunDecisionEvent
   recovery_usd?: number;
   consensusDeltaPp?: number;
   consensusDelta?: number;
+  decline_reason?: string | null;
 }
 
 interface RunResultEvent {
@@ -55,6 +60,12 @@ interface RunResultEvent {
   letter?: string;
   auditHash?: string;
   bandRoomId?: string | null;
+  runId?: string | null;
+}
+
+interface RunStartEvent {
+  caseId: string;
+  runId?: string | null;
 }
 
 type ActionReducers = {
@@ -67,6 +78,8 @@ type ActionReducers = {
 const initial: RunState = {
   status: "idle",
   caseId: null,
+  activeRunId: null,
+  lastSeq: null,
   postings: [],
   letter: "",
   decision: null,
@@ -80,10 +93,17 @@ const ACTION_REDUCERS: ActionReducers = {
     status: "connecting",
     caseId: action.caseId,
   }),
+  stream_start: (state, action) => ({
+    ...state,
+    status: "streaming",
+    caseId: action.caseId,
+    activeRunId: action.runId,
+  }),
   post: (state, action) => ({
     ...state,
     status: "streaming",
     postings: [...state.postings, action.posting],
+    lastSeq: action.posting.seq ?? state.lastSeq,
   }),
   letter_chunk: (state, action) => ({
     ...state,
@@ -105,6 +125,8 @@ const ACTION_REDUCERS: ActionReducers = {
   seed: (_state, action) => ({
     ...initial,
     caseId: action.caseId,
+    activeRunId: action.runId ?? null,
+    lastSeq: lastPostingSeq(action.postings),
     postings: action.postings,
     decision: action.decision,
     letter: action.letter,
@@ -133,6 +155,15 @@ export function useRunStream() {
     const src = new EventSource(`/api/run/${encodeURIComponent(caseId)}`);
     let receivedResult = false;
     sourceRef.current = src;
+
+    src.addEventListener("start", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data) as RunStartEvent;
+        dispatch(streamStartAction(data));
+      } catch {
+        // ignore malformed
+      }
+    });
 
     const handlePosting = (e: MessageEvent) => {
       try {
@@ -201,6 +232,7 @@ export function useRunStream() {
    */
   const seed = (input: {
     caseId: string;
+    runId?: string | null;
     postings: RoomPosting[];
     decision: DecisionResult | null;
     letter?: string;
@@ -210,6 +242,7 @@ export function useRunStream() {
     dispatch({
       type: "seed",
       caseId: input.caseId,
+      runId: input.runId,
       postings: input.postings,
       decision: input.decision,
       letter: input.letter ?? input.decision?.letter ?? "",
@@ -256,6 +289,8 @@ export function decisionFromPersisted(
     recoveryUsd: Number(get("recoveryUsd", "recovery_usd") ?? 0),
     confidence: Number(get("confidence") ?? 0),
     escalate: Boolean(get("escalate") ?? false),
+    pursue: get<boolean>("pursue"),
+    declineReason: get<string | null>("declineReason", "decline_reason"),
     consensus: get<DecisionResult["consensus"]>("consensus", "consensus_type"),
     consensusDeltaPp: Number(get("consensusDeltaPp", "consensus_delta") ?? 0),
     faultTable: get(
@@ -285,9 +320,26 @@ function normalizeRunResult(payload: RunResultEvent): DecisionResult {
       decision.consensusDeltaPp,
       decision.consensusDelta,
     ]),
+    declineReason: firstDefined([
+      decision.declineReason,
+      decision.decline_reason,
+    ]),
     letter: firstDefined([decision.letter, payload.letter]),
     auditHash: firstDefined([decision.auditHash, payload.auditHash]),
     bandRoomId: firstDefined([decision.bandRoomId, payload.bandRoomId], null),
+  };
+}
+
+function lastPostingSeq(postings: RoomPosting[]): number | null {
+  const seq = postings.at(-1)?.seq;
+  return seq === undefined ? null : seq;
+}
+
+function streamStartAction(data: RunStartEvent): Action {
+  return {
+    type: "stream_start",
+    caseId: data.caseId,
+    runId: data.runId ?? null,
   };
 }
 

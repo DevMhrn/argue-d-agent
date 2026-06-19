@@ -100,11 +100,14 @@ export default function CaseDetailPage({ params }: PageProps) {
         if (cancelled) return;
         seed({
           caseId: data.case.case_id,
+          runId: latest.id,
           postings: replay.postings.map((p) => ({
+            seq: p.seq,
             agent: p.agent,
             color: `c${p.color}`, // RoomPosting.color is a string token
             kind: p.kind,
             content: p.content,
+            metadata: p.metadata,
             at: new Date(p.posted_at).getTime(),
           })),
           decision: decisionFromPersisted(replay.decision),
@@ -468,6 +471,8 @@ function DbCaseBody({
         status={run.status}
         postings={run.postings}
         bandRoomId={run.bandRoomId}
+        activeRunId={run.activeRunId}
+        lastSeq={run.lastSeq}
         canRun={room.canRun}
         lockedReason={room.lockedReason}
         onRun={onRun}

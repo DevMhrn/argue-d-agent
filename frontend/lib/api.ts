@@ -192,14 +192,20 @@ export async function getDemoClaim(
 }
 
 /** Run history for a real (Supabase) case. Newest first. Demo cases 400. */
-export async function listRunsForCase(caseUuid: string): Promise<{ runs: RunHistoryEntry[] }> {
-  const res = await fetch(apiUrl(`/api/cases/${caseUuid}/runs`), { cache: "no-store" });
+export async function listRunsForCase(
+  caseUuid: string,
+): Promise<{ runs: RunHistoryEntry[] }> {
+  const res = await fetch(apiUrl(`/api/cases/${caseUuid}/runs`), {
+    cache: "no-store",
+  });
   return jsonOrThrow<{ runs: RunHistoryEntry[] }>(res);
 }
 
 /** Full persisted transcript + decision for a specific run. Powers replay-on-mount. */
 export async function getRunReplay(runId: string): Promise<RunReplay> {
-  const res = await fetch(apiUrl(`/api/runs/${runId}/transcript`), { cache: "no-store" });
+  const res = await fetch(apiUrl(`/api/runs/${runId}/transcript`), {
+    cache: "no-store",
+  });
   return jsonOrThrow<RunReplay>(res);
 }
 

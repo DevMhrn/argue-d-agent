@@ -14,6 +14,7 @@ Use this directory for durable project context. Keep current contracts in one ca
 - [Project Plan](./project-plan.md) - hackathon strategy, milestones, and broader delivery plan.
 - [Backend README](../backend/README.md) - production Python lane map, local commands, ingestion test notes.
 - [Frontend README](../frontend/README.md) - Next.js console routes, API contracts, upload behavior.
+- [Courtroom Orchestration Plan](./superpowers/plans/2026-06-19-courtroom-orchestration.md) - current implementation tracker for the bounded courtroom protocol.
 - [Contributor Guide](../AGENTS.md) - repository conventions for coding agents and human contributors.
 - [Fallow local gate](../AGENTS.md#fallow-local-gate) - repo health checks, audit gate, and legacy ignore scope.
 

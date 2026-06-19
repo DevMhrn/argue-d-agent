@@ -552,7 +552,10 @@ function replaceLastMessage(
   setMessages((prev) => prev.slice(0, -1).concat({ id: uid(), ...msg }));
 }
 
-function notifyUnsupportedFiles(rejected: FileRejection[], push: MessagePusher) {
+function notifyUnsupportedFiles(
+  rejected: FileRejection[],
+  push: MessagePusher,
+) {
   if (rejected.length > 0) {
     push({ role: "lumen", text: unsupportedFilesMessage(rejected) });
   }

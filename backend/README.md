@@ -10,12 +10,14 @@ backend/
 │   ├── server.py                #   FastAPI app + SSE routes (cases, run, decision, ingest)
 │   ├── run_server.py            #   Entry point: python -m backend.app.run_server
 │   ├── run_demo.py              #   CLI demo: python -m backend.app.run_demo
-│   ├── pipeline.py              #   The structured debate + dual-adjudication + verifier
+│   ├── pipeline.py              #   Courtroom hearing + dual-adjudication + verifier
+│   ├── courtroom.py             #   Deterministic issue docket and compact issue packets
+│   ├── orchestration_tools.py   #   Safe read-only ledger/statute lookup tools
 │   ├── agents.py / prompts.py   #   Agent definitions + system prompts
 │   ├── gates.py                 #   Citation, Fact, Math gates (code-enforced)
 │   ├── verifier.py              #   Source-Alignment Verifier helper
-│   ├── room.py                  #   Band-room wrapper (LocalRoom + BandRoom)
-│   ├── providers.py             #   Anthropic / Gemini / OpenAI OpenAI-compatible client + mock switch
+│   ├── room.py                  #   Local/Band room wrapper with persisted posting metadata
+│   ├── providers.py             #   OpenAI + Anthropic client registry + mock switch
 │   ├── mock_responses.py        #   Deterministic offline outputs for the demo
 │   ├── config.py                #   Models, providers, thresholds
 │   ├── types.py                 #   Pipeline-internal Pydantic models (ClaimInput, FinalDecision, ...)
@@ -55,12 +57,14 @@ backend/
     ├── README.md                #   Schema overview and stage handoff contracts
     └── migrations/
         ├── 001_initial.sql      #     Tables, triggers, indexes
-        └── 002_seed_statutes.sql#     Public statute data
+        ├── 002_seed_statutes.sql#     Public statute data
+        ├── 003_transcript_metadata.sql # Structured posting metadata
+        └── 004_decision_outcome.sql    # Persisted pursue/escalate/decline outcome
 ```
 
 ## Lane boundaries
 
-The stage ownership contract lives in [`backend/db/README.md`](./db/README.md). In short: ingestion owns documents/pages, ledger owns nodes/edges, and orchestration owns runs/transcript/decisions. Human approval persistence and flipping `cases.finalized` are still pending.
+The stage ownership contract lives in [`backend/db/README.md`](./db/README.md). In short: ingestion owns documents/pages, ledger owns nodes/edges, and orchestration owns runs/transcript/decisions. Transcript rows carry structured metadata for courtroom phase, issue, gate, and clerk-side lookup replay; decisions persist the final pursue/escalate/decline outcome for refresh-safe replay. Human approval persistence and flipping `cases.finalized` are still pending.
 
 ## Running locally
 
@@ -103,4 +107,4 @@ Three constraints shape the layout:
 
 1. **Each lane owns one concern.** Ingestion is one folder. Ledger is one folder. Orchestration stays in `app/`. No file is owned by two people.
 2. **The DB schema is the contract.** `schemas/` mirrors the migrations. Every read or write goes through a typed model, not raw SQL or untyped dicts.
-3. **Mock mode must keep working.** `python -m backend.app.run_demo` runs offline with zero keys and is the canonical orchestration smoke test.
+3. **Mock mode must keep working.** `./run.sh demo` runs offline with zero keys and is the canonical orchestration smoke test.

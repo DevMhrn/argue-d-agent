@@ -59,10 +59,27 @@ MOCK_BY_CASE: dict[str, dict[str, object]] = {
             {"claim": "Driver A's green light does not excuse Driver A exceeding the speed limit; comparative fault must reduce recovery.", "citations": ["F3", "F5", "CA-1431.2"]},
             {"claim": "Witness speed estimates of Driver B are low-confidence and cannot establish B speeding as a fault factor.", "citations": ["F2"]},
         ]},
+        "opposing_cross_primary_liability#1": {"points": [
+            {"claim": "Primary liability should rest on the red-light citation, but recovery counsel overstates witness speed evidence because F2 is lower confidence.", "citations": ["F2", "F4"]},
+        ]},
+        "opposing_cross_comparative_fault#1": {"points": [
+            {"claim": "Driver A's 5 mph overage creates comparative fault even if Driver B ran the red light.", "citations": ["F5", "CA-1431.2"]},
+        ]},
         "advocate_rebuttal#1": {"responses": [
             {"stance": "concede", "claim": "Concede Driver A was 5 mph over the limit — a minor contributory factor.", "citations": ["F5"]},
             {"stance": "rebut", "claim": "Driver B's red-light entry is the proximate cause; a 5 mph overage is minor by comparison under comparative fault.", "citations": ["F1", "F4", "CA-1431.2"]},
             {"stance": "rebut", "claim": "Even setting aside witness speed estimates, the red-light citation independently establishes B as primarily at fault.", "citations": ["F4"]},
+        ]},
+        "advocate_redirect_primary_liability#1": {"responses": [
+            {"stance": "rebut", "claim": "The red-light citation independently establishes Driver B's primary negligence, regardless of the witness speed estimate.", "citations": ["F4", "CVC-21453"]},
+        ]},
+        "advocate_redirect_comparative_fault#1": {"responses": [
+            {"stance": "concede", "claim": "Concede a minor comparative-fault allocation for Driver A's 5 mph overage.", "citations": ["F5", "CA-1431.2"]},
+            {"stance": "rebut", "claim": "That minor overage does not overcome Driver B's red-light entry as the main cause.", "citations": ["F1", "F4"]},
+        ]},
+        "advocate_redirect_comparative_fault#2": {"responses": [
+            {"stance": "concede", "claim": "Concede a minor comparative-fault allocation for Driver A's 5 mph overage.", "citations": ["F5", "CA-1431.2"]},
+            {"stance": "rebut", "claim": "Limit any comparative reduction to the documented 5 mph overage because this issue packet contains no stronger insured-fault evidence.", "citations": ["F5", "CA-1431.2"]},
         ]},
         "verifier": {"results": [
             {"pointIndex": 0, "pointSource": "advocate_position", "claim": "Driver B ran a red light and is primarily liable for the collision.", "citationId": "F1", "alignment": "supported", "reasoning": 'F1 directly establishes Blake entered against a red signal; "primarily liable" is a fair opening-advocacy inference.'},
@@ -144,9 +161,21 @@ MOCK_BY_CASE: dict[str, dict[str, object]] = {
             {"claim": "Wet road does not excuse following too closely — the EDR shows no braking until 0.3s before impact.", "citations": ["F4", "F5"]},
             {"claim": "Driver B was lawfully stopped at a red signal and could not have avoided the collision.", "citations": ["F2"]},
         ]},
+        "opposing_cross_primary_liability#1": {"points": [
+            {"claim": "Primary liability is against our insured because our insured rear-ended a vehicle stopped at a red signal.", "citations": ["F1", "F2", "F3", "CVC-21703"]},
+        ]},
+        "opposing_cross_comparative_fault#1": {"points": [
+            {"claim": "Wet road conditions do not shift meaningful fault because our insured failed to brake until 0.3 seconds before impact.", "citations": ["F4", "F5"]},
+        ]},
         "advocate_rebuttal#1": {"responses": [
             {"stance": "concede", "claim": "Concede our insured was cited for following too closely and bears primary fault.", "citations": ["F3"]},
             {"stance": "rebut", "claim": "Wet conditions are a minor mitigating factor warranting a small comparative share.", "citations": ["F5", "CA-1431.2"]},
+        ]},
+        "advocate_redirect_primary_liability#1": {"responses": [
+            {"stance": "concede", "claim": "Concede primary liability rests with our insured based on the rear-end impact and following-too-closely citation.", "citations": ["F1", "F3"]},
+        ]},
+        "advocate_redirect_comparative_fault#1": {"responses": [
+            {"stance": "rebut", "claim": "Wet road conditions support only a small mitigation, not a viable recovery case.", "citations": ["F5", "CA-1431.2"]},
         ]},
         "verifier": {"results": [
             {"pointIndex": 0, "pointSource": "advocate_position", "claim": "Wet road conditions reduced available stopping distance, a mitigating factor for our insured.", "citationId": "F5", "alignment": "supported", "reasoning": "F5 establishes wet roadway; reduced stopping distance is a reasonable inference."},
