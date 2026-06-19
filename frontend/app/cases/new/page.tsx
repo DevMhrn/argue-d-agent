@@ -317,10 +317,21 @@ export default function NewCasePage() {
     />
   );
 
-  // Inject the inline form into the first Lumen message bubble.
-  const renderedMessages = messages.map((m, i) =>
-    i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m,
-  );
+  // Inject the inline form into the first Lumen message bubble, AND resolve each
+  // message's (frozen) attachment snapshot against the live upload state — so the
+  // chips advance in place (queued → uploading → extracted ✓) as the poll runs.
+  // Without this, attachments render the snapshot taken at drop time and stay
+  // stuck on "Queued" forever.
+  const filesByUid = new Map(files.map((f) => [f.uid, f]));
+  const renderedMessages = messages.map((m, i) => {
+    const withForm =
+      i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m;
+    if (!withForm.attachments?.length) return withForm;
+    return {
+      ...withForm,
+      attachments: withForm.attachments.map((a) => filesByUid.get(a.uid) ?? a),
+    };
+  });
 
   /* ----- render -------------------------------------------------------- */
   return (
@@ -552,7 +563,10 @@ function replaceLastMessage(
   setMessages((prev) => prev.slice(0, -1).concat({ id: uid(), ...msg }));
 }
 
-function notifyUnsupportedFiles(rejected: FileRejection[], push: MessagePusher) {
+function notifyUnsupportedFiles(
+  rejected: FileRejection[],
+  push: MessagePusher,
+) {
   if (rejected.length > 0) {
     push({ role: "lumen", text: unsupportedFilesMessage(rejected) });
   }
