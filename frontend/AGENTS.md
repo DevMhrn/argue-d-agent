@@ -6,4 +6,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Active React Checks
 
-When changing active React code in this folder, run `pnpx react-compiler-marker` from the repo root alongside the Fallow checks. Fix every reported compiler failure before handoff.
+When changing active React code, run these from the repo root alongside Fallow:
+
+```bash
+pnpx react-compiler-marker
+pnpm --dir frontend exec biome lint --only=correctness/useExhaustiveDependencies --only=a11y/noStaticElementInteractions --only=a11y/noLabelWithoutControl --only=style/useGlobalThis --max-diagnostics=none .
+```
+
+Fix every reported React Compiler or targeted Biome issue before handoff.

@@ -44,10 +44,8 @@ import type { CaseCreatePayload, CaseRow, DocumentRow } from "@/lib/types";
 /* -------------------------------------------------------------- helpers */
 
 /**
- * MIME types our extractors actually handle today. This must mirror
- * backend/ingestion/extractors/registry.py — keep them in sync by hand.
- * Images (PNG/JPG) and audio are Phase 2 (vision via Gemini/Claude + Whisper),
- * see docs/ingestion-start-context.md §17 / §22.
+ * Supported file label comes from frontend/lib/fileSupport.ts, which mirrors
+ * backend/ingestion/limits.py and backend/ingestion/extractors/registry.py.
  */
 const SUPPORTED_LABEL = SUPPORTED_FILES_LABEL;
 

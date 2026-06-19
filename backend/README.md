@@ -44,10 +44,14 @@ backend/
 │   ├── queue.py                 #   Async extraction queue (arq + Redis)
 │   └── extractors/              #   Per-format text extractors
 │       ├── base.py              #     Extractor protocol + ExtractedDocument / ExtractedPage
-│       ├── pdf.py               #     pdfplumber (native PDFs only)
+│       ├── pdf.py               #     pdfplumber + OCR fallback
 │       ├── docx.py              #     python-docx
+│       ├── excel.py             #     python-calamine for .xlsx
+│       ├── csv.py               #     stdlib CSV/TSV-style rows
 │       ├── html.py              #     BeautifulSoup
-│       ├── text.py              #     plain text
+│       ├── text.py              #     plain text / Markdown
+│       ├── image.py             #     Claude vision or mock image summary
+│       ├── audio.py             #     Whisper transcription + events or mock
 │       └── registry.py          #     MIME-type -> Extractor dispatch
 │
 ├── ledger/                      # Graph builder (Gowtham's lane, offline-first)
@@ -90,7 +94,7 @@ Use a Supabase pooler `DATABASE_URL` for local ingestion if `db.<project-ref>.su
 
 The full upload path needs the FastAPI server, arq worker, Supabase, Backblaze B2, and Redis. With those running, use the chat intake at `/cases/new` or the smoke probe in `scripts/probe_upload.py`. Set `PROBE_UPLOAD_PATH` to upload a local file instead of the default tiny text fixture.
 
-For PDF-specific testing, use a native text PDF such as the supplied NHTSA South Carolina TR-310 manual. Command-line clients may receive a 403 from that host; if so, save the file through a browser and upload it from the frontend or run `PROBE_UPLOAD_PATH=/path/to/sc_tr310_manual_rev8_2012.pdf python -m scripts.probe_upload`. Native PDFs are handled by `backend/ingestion/extractors/pdf.py`; scanned PDFs require OCR and are out of scope for v1.
+For PDF-specific testing, use a native text PDF such as the supplied NHTSA South Carolina TR-310 manual. Command-line clients may receive a 403 from that host; if so, save the file through a browser and upload it from the frontend or run `PROBE_UPLOAD_PATH=/path/to/sc_tr310_manual_rev8_2012.pdf python -m scripts.probe_upload`. Native PDFs are handled by `backend/ingestion/extractors/pdf.py`; scanned PDFs attempt OCR fallback when `ocrmypdf`, Tesseract, and Ghostscript are installed.
 
 ## Application schemas vs pipeline types
 

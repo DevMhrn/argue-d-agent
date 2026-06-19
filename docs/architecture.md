@@ -65,7 +65,7 @@ sequenceDiagram
   U->>F: Create case shell
   F->>A: POST /api/ingest/case
   A->>D: insert cases row
-  U->>F: Drop PDF/DOCX/HTML/text evidence
+  U->>F: Drop supported evidence files
   F->>A: POST /api/ingest/sign-upload
   A->>D: reserve documents row
   A-->>F: pre-signed PUT URL
@@ -199,5 +199,5 @@ To add a new gate, keep it as plain code, wire it into `backend/app/pipeline.py`
 
 - No autonomous filing or sending demand letters without human review.
 - No generic multi-agent framework. Lumen is one recovery workflow.
-- No scanned-PDF OCR, image vision, audio transcription, or spreadsheet ingestion in v1.
+- No old `.doc` or video ingestion in v1.
 - No legacy TypeScript cleanup unless the legacy demo itself is the target.

@@ -4,7 +4,7 @@
 >
 > Companion docs (more detail per area): [`architecture.md`](architecture.md) (system internals), [`project-plan.md`](project-plan.md) (the strategy/plan), [`product-context.md`](product-context.md) (the product story), [`ingestion-start-context.md`](ingestion-start-context.md) (ingestion lane deep-dive + earlier session history), [`backend/README.md`](../backend/README.md) (backend layout), [`backend/ledger/README.md`](../backend/ledger/README.md) (ledger lane).
 >
-> Last compiled: 2026-06-18. If you change a decision, append to §16 (Decision Log) with the date and reasoning — don't silently overwrite history.
+> Last compiled: 2026-06-19. If you change a decision, append to §16 (Decision Log) with the date and reasoning — don't silently overwrite history.
 
 ---
 
@@ -336,15 +336,17 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 
 ## 18. Current status (what's done vs. pending)
 
-**Done + verified (mock):** Python backend; 6-gate harness; bounded courtroom hearing; dual-family adjudication; loser/decline case; Next.js recovery-operations console with courtroom metadata display; legacy TypeScript demo retained only as a reference path; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` - write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case hearing (`GET /api/run/{uuid}` runs over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=...)`) and persists run metadata/transcript/decision rows for replay;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
+**Done + verified (mock/offline):** Python backend; 6-gate harness; bounded courtroom hearing; dual-family adjudication; loser/decline case; Next.js recovery-operations console with courtroom metadata display; legacy TypeScript demo retained only as a reference path; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` - write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case hearing (`GET /api/run/{uuid}` runs over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=...)`) and persists run metadata/transcript/decision rows for replay;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
 
-**Pending / env-gated:** live model run of the full real flow (`ingest→ledger→hearing`) against target provider accounts; human approval/finalization persistence (`cases.finalized`); deploy live; record demo assets; confirm provider model IDs in live consoles.
+**Done + verified (local browser smoke, 2026-06-19):** case `SMOKE-039741` uploaded PDF + TXT evidence, extracted 2/2 documents, built a 31-node / 33-edge ledger, reached a terminal escalated room decision, and replayed after refresh with 39 transcript items plus the decision panel.
+
+**Pending / env-gated:** provider-live run with `LUMEN_MOCK=0` explicitly confirmed against target provider accounts; human approval/finalization persistence (`cases.finalized`); deploy live; record final demo assets; confirm provider model IDs in live consoles.
 
 ---
 
 ## 19. Future scope (deferred, post-hackathon or v2)
 
-- **Image & audio ingestion** — photos via a vision model (Gemini/Claude), audio via Whisper (OpenAI). Phase 2.
+- **Image/audio/OCR hardening** — credential checks, cost controls, dependency probes, and broader fixtures for model-backed extraction.
 - **Cross-case memory** — "find similar past cases" (the one genuine embeddings use case; deferred).
 - **Retrieval in the Evidence Aggregator** at 50+ doc scale (full-text first, embeddings if needed).
 - **More claim types / jurisdictions** (more statutes, multi-state comparative-negligence).

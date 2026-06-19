@@ -45,7 +45,7 @@ export class ApiError extends Error {
  * defaults to http://127.0.0.1:8000 in dev.
  */
 function apiUrl(path: string): string {
-  if (typeof window !== "undefined") return path;
+  if (typeof globalThis.window !== "undefined") return path;
   const base =
     process.env.LUMEN_API_BASE_URL ??
     process.env.NEXT_PUBLIC_API_BASE_URL ??
