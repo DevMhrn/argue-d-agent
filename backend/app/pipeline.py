@@ -251,6 +251,30 @@ async def _run_verifier(tasks: list[VerifierTask], context: str) -> Alignment | 
     return None
 
 
+def _fallback_letter(claim: ClaimInput, decision: Decision, recovery_usd: int, ledger: EvidenceLedger) -> str:
+    """Minimal deterministic demand letter, used only when the Drafter agent
+    fails both attempts. Includes the canonical fault % and recovery $ so the
+    Letter Reconciliation gate passes; the human reviewer reading this will
+    see clearly that the polished draft is missing and rewrite if needed."""
+    pct = int(round(decision.otherDriverFaultPct))
+    fact_lines = "\n".join(f"  - [{f.id}] {f.statement} (source: {f.source})" for f in ledger.facts[:8])
+    return (
+        f"[TEMPLATE FALLBACK — automated Drafter call failed; a human reviewer should rewrite this before sending.]\n\n"
+        f"RE: Subrogation Demand — Case {claim.caseId}\n"
+        f"From: {claim.insured} (our insured)\n"
+        f"To: Carrier for {claim.otherParty}\n"
+        f"Jurisdiction: {claim.jurisdiction}\n\n"
+        f"Our investigation finds your insured {pct}% at fault for the loss documented in case "
+        f"{claim.caseId}. On the basis of the cited evidence below and the comparative-negligence "
+        f"framework of {claim.jurisdiction}, we demand recovery in the amount of ${recovery_usd:,} "
+        f"(reflecting {pct}% of documented damages of ${int(claim.damagesUsd):,}).\n\n"
+        f"Key cited evidence:\n{fact_lines}\n\n"
+        f"Please respond within 30 days. Failure to respond will be treated as acceptance of liability "
+        f"and the demand will be forwarded to arbitration.\n\n"
+        f"Best regards,\nSubrogation Recovery Team"
+    )
+
+
 def _reconcile_letter(letter: str, decision: FinalDecision) -> list[str]:
     issues: list[str] = []
     pct = f"{decision.otherDriverFaultPct}%"
@@ -541,8 +565,24 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     elif final.escalate:
         await room.post(SYS, 196, "decision", f"ESCALATED TO HUMAN ADJUSTER — {'; '.join(reasons)}. Awaiting Approve/Reject.")
 
-    # 8) Demand letter
-    letter = _parse_letter(await _ask(AGENTS["drafter"], f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter.", "drafter"))
+    # 8) Demand letter — with retry + deterministic fallback. The Drafter is
+    # the last LLM call (step 8/8) so a network blip here loses 60+s of work.
+    # Fallback: a minimal template letter that includes the canonical fault%
+    # and recovery$ so Letter Reconciliation passes by construction.
+    drafter_user = f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter."
+    letter: str | None = None
+    for attempt in (1, 2):
+        try:
+            letter = _parse_letter(await _ask(AGENTS["drafter"], drafter_user, f"drafter#{attempt}" if attempt > 1 else "drafter"))
+            if letter and letter.strip():
+                break
+            letter = None
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                await room.post(LETTER_GATE, 214, "gate",
+                                f"Drafter call failed ({type(e).__name__}); using template fallback so the packet is still produced.")
+    if not letter:
+        letter = _fallback_letter(claim, canonical, recovery_usd, ledger)
     await room.post(AGENTS["drafter"].name, AGENTS["drafter"].color, "message", "Drafted the formal subrogation demand letter (full text in output).")
 
     # 8b) Letter reconciliation
