@@ -133,8 +133,18 @@ async def _load_statutes(repo: IngestionRepository, jurisdiction: str) -> list[S
 
 async def build_and_persist_ledger(case_id: UUID) -> LedgerBuildResult:
     repo = IngestionRepository()
+    writer = LedgerWriteRepository()
+
     claim, docmap = await _load_claim(repo, case_id)
     statutes = await _load_statutes(repo, claim.jurisdiction)
+
+    pages = sum(len(d.text) for d in claim.documents)  # rough size signal
+    mode = "deterministic fixture" if is_mock() else "live extraction"
+    await writer.set_build_progress(
+        case_id, "extracting",
+        f"Evidence Aggregator reading {len(claim.documents)} document(s) "
+        f"({pages:,} chars) and extracting the typed graph ({mode})…",
+    )
 
     graph = await build_ledger(claim, statutes)
 
@@ -146,14 +156,25 @@ async def build_and_persist_ledger(case_id: UUID) -> LedgerBuildResult:
             len(graph.nodes), len(graph.edges), case_id,
         )
     else:
+        await writer.set_build_progress(
+            case_id, "anchoring",
+            f"Validating fact anchors — {len([n for n in graph.nodes if n.type == 'Fact'])} fact(s) "
+            f"against {len(claim.documents)} source document(s)…",
+        )
         v = validate_graph(graph, docmap)
         valid, violations = v.ok, v.violations
         if not v.ok:
             log.warning("ledger build validation violations for %s: %s", case_id, v.violations)
 
-    writer = LedgerWriteRepository()
+    await writer.set_build_progress(
+        case_id, "writing",
+        f"Persisting {len(graph.nodes)} nodes, {len(graph.edges)} edges to the Evidence Ledger…",
+    )
     node_count, edge_count = await writer.write_graph(case_id, graph)
     flipped = await writer.mark_ledger_complete(case_id)
+    await writer.set_build_progress(
+        case_id, "done", f"Ledger locked — {node_count} nodes, {edge_count} edges.",
+    )
     log.info(
         "ledger persisted for %s: %d nodes, %d edges, ledger_complete flipped=%s",
         case_id, node_count, edge_count, flipped,

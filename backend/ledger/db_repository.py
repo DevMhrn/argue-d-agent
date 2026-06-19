@@ -118,3 +118,19 @@ class LedgerWriteRepository:
                 case_id,
             )
         return row is not None
+
+    async def set_build_progress(self, case_id: UUID, phase: str, detail: str = "") -> None:
+        """Write a coarse build-progress blob into cases.metadata.ledger_build so the
+        case-status SSE stream can show the ledger lane's live phase (instead of a
+        stale 'building' block). Best-effort: a failed write must never break the build."""
+        payload = json.dumps({"phase": phase, "detail": detail})
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "update cases set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), "
+                    "'{ledger_build}', $2::jsonb, true) where id = $1",
+                    case_id, payload,
+                )
+        except Exception:  # noqa: BLE001 — progress is cosmetic; never fail the build over it
+            pass

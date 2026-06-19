@@ -199,6 +199,77 @@ async def api_case(case_id: str):
     return {"source": "demo", "meta": meta, "claim": claim}
 
 
+_SSE_HEADERS = {"Cache-Control": "no-cache, no-transform"}
+
+
+def _case_status_payload(case, documents) -> dict[str, Any]:
+    """Lean live-status snapshot for the SSE stream (no heavy nodes/edges — the
+    client refetches the full case via /api/case/{id} when ledger_complete flips)."""
+    metadata = dict(case.metadata or {})
+    return {
+        "stage": _stage_of({
+            "metadata": metadata,
+            "ingestion_complete": case.ingestion_complete,
+            "ledger_complete": case.ledger_complete,
+            "finalized": case.finalized,
+        }),
+        "ingestion_complete": case.ingestion_complete,
+        "ledger_complete": case.ledger_complete,
+        "finalized": case.finalized,
+        "documents": [
+            {"id": str(d.id), "filename": d.filename, "status": d.status}
+            for d in documents
+        ],
+        "extracted": sum(1 for d in documents if d.status == "extracted"),
+        "total": len(documents),
+        "build": metadata.get("ledger_build"),
+    }
+
+
+@app.get("/api/case/{case_id}/events")
+async def api_case_events(case_id: str):
+    """Live case-status stream (SSE). The server polls the DB and pushes a status
+    snapshot whenever it changes — so the UI reflects ingestion → ledger-build →
+    room-ready transitions (and the ledger lane's live build phase) without a manual
+    refresh. Demo ids are instant: one 'ready' event and close."""
+    if not _is_uuid(case_id):
+        async def demo_stream():
+            yield _sse("status", {"stage": "ready", "ledger_complete": True, "demo": True})
+            yield _sse("done", {})
+        return StreamingResponse(demo_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    from uuid import UUID as _UUID
+    from backend.ingestion.repository import IngestionRepository
+
+    case_uuid = _UUID(case_id)
+
+    async def stream():
+        repo = IngestionRepository()
+        last: dict[str, Any] | None = None
+        # Safety cap: ~6 minutes of polling, then close (client reconnects if needed).
+        for _ in range(240):
+            try:
+                case = await repo.get_case(case_uuid)
+            except Exception as e:  # noqa: BLE001 — surface DB blips, don't hang
+                yield _sse("error", {"message": f"{type(e).__name__}: {e}"})
+                return
+            if case is None:
+                yield _sse("error", {"message": "unknown case"})
+                return
+            documents = await repo.list_documents_for_case(case_uuid)
+            payload = _case_status_payload(case, documents)
+            if payload != last:
+                yield _sse("status", payload)
+                last = payload
+            if case.ledger_complete or case.finalized:
+                yield _sse("done", {})
+                return
+            await asyncio.sleep(1.5)
+        yield _sse("done", {})
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 @app.get("/api/run/{case_id}")
 async def api_run(case_id: str):
     """Open the Argument Room — stream a debate over the case via SSE.
