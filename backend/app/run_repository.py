@@ -179,12 +179,17 @@ class RunRepository:
             return self._row_to_run(row) if row else None
 
     async def list_runs_for_case(
-        self, case_id: UUID, *, limit: int = 20, stale_after_seconds: int = 180
+        self, case_id: UUID, *, limit: int = 20, stale_after_seconds: int = 600
     ) -> list[RunRow]:
         """Most recent runs first. Sweeps stale 'running' runs (started >
         stale_after_seconds ago) to 'failed' before reading — covers the case
         where the FastAPI process was killed mid-debate or the client cancelled
-        the SSE stream so the finally-block update never landed."""
+        the SSE stream so the finally-block update never landed.
+
+        The window is 10 min, not seconds: a LIVE debate makes ~8 sequential
+        model calls (the Source-Alignment Verifier alone can take ~2 min), so a
+        shorter timeout would sweep an in-flight live run to 'failed' before it
+        finishes — which is exactly the spurious 'failed' we saw at 180s."""
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(

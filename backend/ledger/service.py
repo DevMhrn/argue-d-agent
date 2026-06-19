@@ -116,7 +116,38 @@ async def load_run_inputs(case_id: UUID) -> tuple[ClaimInput, list[Statute], Evi
     doc_names = {d.id: d.filename for d, _ in docs}
     nodes = await repo.list_nodes_for_case(case_id)
     ledger = _rows_to_evidence_ledger(case.case_id, nodes, doc_names)
+
+    # Recovery = damages × fault%. If the case row carries no damages figure
+    # (operator left it blank at creation), derive it from the ledger's Damage
+    # nodes so the recovery math isn't silently zeroed out (→ a spurious DECLINE
+    # even when fault is high). The case-row value, when present, stays authoritative.
+    if not claim.damagesUsd:
+        derived = _sum_damage_nodes(nodes)
+        if derived > 0:
+            log.info("case %s has no damages_usd; derived %.2f from %d Damage node(s)",
+                     case_id, derived, sum(1 for n in nodes if n.type == "Damage"))
+            claim = claim.model_copy(update={"damagesUsd": derived})
+
     return claim, statutes, ledger
+
+
+def _sum_damage_nodes(nodes: list[NodeRow]) -> float:
+    """Sum the dollar amounts on Damage nodes (props.amountUsd or props.amount).
+    Tolerant of '$'/',' formatting and non-numeric values."""
+    total = 0.0
+    for n in nodes:
+        if n.type != "Damage":
+            continue
+        raw = (n.props or {}).get("amountUsd")
+        if raw is None:
+            raw = (n.props or {}).get("amount")
+        if raw is None:
+            continue
+        try:
+            total += float(str(raw).replace("$", "").replace(",", "").strip())
+        except ValueError:
+            continue
+    return round(total, 2)
 
 
 async def _load_statutes(repo: IngestionRepository, jurisdiction: str) -> list[Statute]:
