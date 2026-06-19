@@ -1,67 +1,104 @@
 @import "tailwindcss";
 
 /* ===========================================================================
-   Lumen — dark "mission control" theme. Ported from frontend/_legacy/styles.css
-   into Tailwind v4's @theme system so utilities can reference the design tokens
-   directly (e.g. `bg-panel`, `text-muted`, `border-border-soft`).
+   Lumen — warm-charcoal, paper-adjacent "legal brief / courtroom" theme.
+   Maps 1:1 to the Lumen design comp (handoff/theme.css). Dark only.
+   Utilities reference these tokens directly (e.g. `bg-panel`, `text-money`,
+   `font-serif`, `text-family-claude`, `rounded-card`).
+   Money is embossed currency, never warning. Gates read verified / review /
+   violated, not stoplight.
    =========================================================================== */
 
 @theme {
-  /* surfaces */
-  --color-bg: #080b14;
-  --color-panel: #0e1422;
-  --color-panel-2: #121a2c;
-  --color-panel-3: #161f34;
-  --color-border: #1f2a42;
-  --color-border-soft: #18203466;
+  /* surfaces — warm charcoal, paper-adjacent */
+  --color-bg: #15120e;
+  --color-panel: #1c1813;
+  --color-panel-2: #231e17;
+  --color-panel-3: #2b261d;
+  --color-border: #363027;
+  --color-border-soft: #29231b;
 
   /* text */
-  --color-text: #e8edf7;
-  --color-muted: #8b95ad;
-  --color-muted-2: #626c83;
+  --color-text: #ece6dc;
+  --color-muted: #a59b8c;
+  --color-muted-2: #6e6657;
 
-  /* accents */
-  --color-accent: #5b8cff;
-  --color-accent-2: #38bdf8;
-  --color-ok: #34d399;
-  --color-warn: #f5b942;
-  --color-bad: #fb6f7c;
-  --color-gold: #f4c860;
+  /* interactive — desaturated electric blue ("code, not chat") */
+  --color-accent: #6f9bf0;
+  --color-accent-strong: #8cb0f7;
+  --color-accent-dim: #3a4a6b;
+  /* back-compat alias (legacy components referenced accent-2) */
+  --color-accent-2: #8cb0f7;
 
-  /* agent hues — used by the live room transcript */
-  --color-agent-intake: #94a3b8;
-  --color-agent-evidence: #5eead4;
-  --color-agent-advocate: #5b9bff;
-  --color-agent-opposing: #fb7185;
-  --color-agent-adj-a: #f4c860;
-  --color-agent-adj-b: #fb923c;
-  --color-agent-verifier: #c084fc;
-  --color-agent-drafter: #a78bfa;
+  /* gate states — verified / review / violated (not stoplight) */
+  --color-ok: #6ea98a; /* passed   — cool sage  */
+  --color-warn: #d4a44a; /* warning  — warm amber */
+  --color-bad: #c66a5a; /* rejected — brick red  */
 
-  /* radii + shadow */
-  --radius-card: 14px;
-  --radius-pill: 9px;
-  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
+  /* the money — embossed currency, never warning */
+  --color-money: #e7d3a8;
+  /* back-compat alias (legacy components referenced gold) */
+  --color-gold: #e7d3a8;
 
-  /* fonts inherited from layout.tsx (Geist + Geist Mono) */
-  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto,
-    sans-serif;
+  /* cross-family agent identity (anti-collusion, made visible) */
+  --color-family-claude: #d8b888; /* warm sand  */
+  --color-family-gpt: #8fb8bd; /* cool steel */
+
+  /* legacy per-agent hues, retinted to the warm palette so any not-yet-ported
+     component still resolves its classes and reads on-theme. */
+  --color-agent-intake: #a59b8c;
+  --color-agent-evidence: #8fb8bd;
+  --color-agent-advocate: #d8b888;
+  --color-agent-opposing: #8fb8bd;
+  --color-agent-adj-a: #cdb07f;
+  --color-agent-adj-b: #86b0c4;
+  --color-agent-verifier: #9fb6a8;
+  --color-agent-drafter: #dab98c;
+
+  /* radii */
+  --radius-card: 0.8125rem; /* 13px — panels / surfaces      */
+  --radius-pill: 0.5625rem; /* 9px  — buttons / inputs (ctl) */
+  --radius-chip: 1.25rem; /* 20px — chips / badges         */
+
+  /* shadows (used sparingly; dark UI leans on borders) */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.45);
+
+  /* fonts — Geist (display/UI), Geist Mono (all data), Source Serif 4 (artifact) */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas,
     monospace;
+  --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
 }
 
-/* Ambient gradient on the body — the same radial glow the legacy console used. */
+/* Flat warm-charcoal page (no blue glow). Letter-spacing tightened like the comp. */
 html,
 body {
   height: 100%;
-  background:
-    radial-gradient(1200px 600px at 80% -10%, #11203b 0%, transparent 60%),
-    var(--color-bg);
+  margin: 0;
+  background: var(--color-bg);
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-/* Scrollbar polish for the dark surfaces. */
+/* Paper grain — a barely-there fractal-noise wash over the whole surface. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: rgba(111, 155, 240, 0.3);
+}
+
+/* Scrollbar polish for the warm dark surfaces. */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -70,23 +107,47 @@ body {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-panel-3);
-  border-radius: 5px;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border);
+  background: #3a342a;
+  border-radius: 8px;
+  border: 2px solid var(--color-bg);
 }
 
-/* Subtle focus ring matching the accent — better than the default browser blue. */
+/* Keyboard focus ring matching the accent. */
 *:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-/* Reusable form input class (used by /cases/new). Tailwind v4 doesn't ship a
-   form-input preset by default, so we hand-roll a tiny one keyed off the
-   design tokens above. */
+/* The five interactive states, applied to every button (matches theme.css). */
+button {
+  transition:
+    filter 0.15s ease,
+    transform 0.08s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  filter: saturate(0.4);
+}
+
+/* Data figures: always tabular mono so columns align across cases. */
+.tnum {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reusable form input (used by /cases/new and intake). */
 .input {
   background: var(--color-panel-2);
   border: 1px solid var(--color-border);
@@ -100,4 +161,93 @@ body {
 .input:focus {
   outline: none;
   border-color: var(--color-accent);
+}
+
+/* ===========================================================================
+   Load-bearing animations (handoff/README S4 motion spec).
+   reduce-motion users get the final, settled state — no movement.
+   =========================================================================== */
+@keyframes postIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes gatePop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes ringPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(111, 155, 240, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgba(111, 155, 240, 0);
+  }
+}
+@keyframes sealIn {
+  0% {
+    transform: scale(1.4) rotate(-8deg);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) rotate(-4deg);
+    opacity: 1;
+  }
+}
+@keyframes barShimmer {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 24px 0;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes benchRise {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-2px);
+  }
+}
+
+/* Honor the platform reduced-motion preference: snap everything to its end
+   state. rAF-driven counters check matchMedia separately and jump to final. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

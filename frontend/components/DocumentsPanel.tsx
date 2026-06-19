@@ -39,10 +39,10 @@ interface Props {
 }
 
 const STATUS_TONE: Record<DocumentRow["status"], string> = {
-  pending: "border-muted-2/40 bg-panel-3 text-muted",
-  uploaded: "border-accent/40 bg-accent/10 text-accent",
+  pending: "border-border bg-panel-3 text-muted-2",
+  uploaded: "border-accent-dim bg-accent/10 text-accent-strong",
   extracting: "border-warn/40 bg-warn/10 text-warn",
-  extracted: "border-ok/40 bg-ok/10 text-ok",
+  extracted: "border-ok/35 bg-ok/10 text-ok",
   failed: "border-bad/40 bg-bad/10 text-bad",
 };
 
@@ -60,6 +60,84 @@ function isTerminal(s: DocumentRow["status"]): boolean {
   return s === "extracted" || s === "failed";
 }
 
+// ---- exhibit-binder sections ----------------------------------------------
+// Group server documents into binder sections inferred from filename / mime /
+// document_kind. Order is fixed (comp line 1189) so the panel reads like a
+// physical exhibit binder.
+
+type SectionTitle = "Source documents" | "Damages evidence" | "Audio / visual";
+
+const SECTION_ORDER: readonly SectionTitle[] = [
+  "Source documents",
+  "Damages evidence",
+  "Audio / visual",
+];
+
+const SOURCE_HINTS = [
+  "police",
+  "recon",
+  "camera",
+  "report",
+  "statement",
+  "log",
+];
+const DAMAGES_HINTS = [
+  "medical",
+  "repair",
+  "invoice",
+  "estimate",
+  "bill",
+  "damage",
+];
+
+function sectionFor(doc: DocumentRow): SectionTitle {
+  const mime = doc.mime_type.toLowerCase();
+  if (
+    mime.startsWith("audio/") ||
+    mime.startsWith("image/") ||
+    mime.startsWith("video/")
+  ) {
+    return "Audio / visual";
+  }
+  const haystack = `${doc.filename} ${doc.document_kind ?? ""}`.toLowerCase();
+  if (DAMAGES_HINTS.some((h) => haystack.includes(h)))
+    return "Damages evidence";
+  if (SOURCE_HINTS.some((h) => haystack.includes(h))) return "Source documents";
+  return "Source documents";
+}
+
+// Pictogram glyph by kind (comp line 1183): pdf ▤, xls/csv ▦, audio ◉, image ▣.
+function glyphFor(doc: DocumentRow): string {
+  const mime = doc.mime_type.toLowerCase();
+  if (mime.startsWith("audio/")) return "◉";
+  if (mime.startsWith("image/") || mime.startsWith("video/")) return "▣";
+  if (mime.includes("spreadsheet") || mime.includes("csv")) return "▦";
+  return "▤";
+}
+
+interface DocSection {
+  title: SectionTitle;
+  docs: DocumentRow[];
+}
+
+function groupSections(docs: DocumentRow[]): DocSection[] {
+  const buckets = new Map<SectionTitle, DocumentRow[]>();
+  for (const doc of docs) {
+    const title = sectionFor(doc);
+    const list = buckets.get(title);
+    if (list) list.push(doc);
+    else buckets.set(title, [doc]);
+  }
+  return SECTION_ORDER.flatMap((title) => {
+    const grouped = buckets.get(title);
+    return grouped ? [{ title, docs: grouped }] : [];
+  });
+}
+
+function exhibitCount(n: number): string {
+  return `${n} ${n === 1 ? "exhibit" : "exhibits"}`;
+}
+
 export function DocumentsPanel({
   caseUuid,
   initialDocuments,
@@ -72,10 +150,12 @@ export function DocumentsPanel({
   });
 
   return (
-    <section className="rounded-card border border-border bg-panel p-5 shadow-card">
+    <section className="overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <DocumentsHeader summary={summary} />
-      <ServerDocuments docs={docs} />
-      <LocalUploads files={files} />
+      <div className="p-2">
+        <ServerDocuments docs={docs} />
+        <LocalUploads files={files} />
+      </div>
       <UploadFooter addFiles={addFiles} rejectedNote={rejectedNote} />
     </section>
   );
@@ -262,83 +342,130 @@ interface DocumentsSummary {
 
 function DocumentsHeader({ summary }: { summary: DocumentsSummary }) {
   return (
-    <header className="mb-3 flex items-baseline justify-between gap-3">
-      <div>
-        <h3 className="font-semibold text-base tracking-tight">Documents</h3>
-        <p className="mt-0.5 text-[12px] text-muted">
-          Raw bytes in Backblaze · extracted text + metadata in Supabase.
-        </p>
-      </div>
-      <span className="text-[12px] text-muted-2">
-        {summary.extracted} / {summary.total} extracted
-        {failedText(summary.failed)}
+    <header className="flex items-center justify-between gap-3 border-border-soft border-b px-4 py-3.25">
+      <h3 className="font-semibold text-[13px] tracking-tight">Documents</h3>
+      <span className="font-mono text-[10.5px] text-muted-2">
+        {fileCountText(summary)}
       </span>
     </header>
   );
 }
 
-function failedText(failed: number): string {
-  return failed ? ` · ${failed} failed` : "";
+function fileCountText(summary: DocumentsSummary): string {
+  const base = `${summary.total} file${summary.total === 1 ? "" : "s"}`;
+  return summary.failed ? `${base} · ${summary.failed} failed` : base;
 }
 
 function ServerDocuments({ docs }: { docs: DocumentRow[] }) {
   if (docs.length === 0) {
     return (
-      <p className="text-[13px] text-muted">
-        No documents uploaded for this case yet.
+      <p className="px-2 py-3 text-[12.5px] text-muted">
+        No documents filed for this case yet.
       </p>
     );
   }
 
+  const sections = groupSections(docs);
+
   return (
-    <ul className="grid gap-2">
-      {docs.map((doc) => (
+    <div>
+      {sections.map((sec) => (
+        <ExhibitSection key={sec.title} section={sec} />
+      ))}
+    </div>
+  );
+}
+
+function ExhibitSection({ section }: { section: DocSection }) {
+  return (
+    <section className="mb-1.5">
+      <SectionRule title={section.title} count={section.docs.length} />
+      {section.docs.map((doc) => (
         <ServerDocumentRow key={doc.id} doc={doc} />
       ))}
-    </ul>
+    </section>
+  );
+}
+
+function SectionRule({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 px-2 pt-1.75 pb-1.25">
+      <span className="font-mono text-[9px] text-muted-2 uppercase tracking-[0.14em]">
+        {title}
+      </span>
+      <div className="h-px flex-1 bg-border-soft" />
+      <span className="font-mono text-[9px] text-muted-2">
+        {exhibitCount(count)}
+      </span>
+    </div>
   );
 }
 
 function ServerDocumentRow({ doc }: { doc: DocumentRow }) {
   return (
-    <li className="flex items-center justify-between gap-3 rounded-pill border border-border-soft bg-panel-2 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px]">{doc.filename}</div>
-        <DocumentMeta doc={doc} />
-        <ExtractionError error={doc.extraction_error} />
+    <div className="rounded-lg px-2 py-2.25 hover:bg-panel-2/60">
+      <div className="flex items-center gap-2.5">
+        <Pictogram glyph={glyphFor(doc)} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium text-[12.5px]">
+            {doc.filename}
+          </div>
+          <DocumentMeta doc={doc} />
+        </div>
+        <StatusBadge status={doc.status} />
       </div>
-      <StatusBadge status={doc.status} />
-    </li>
+      <ExtractionError error={doc.extraction_error} />
+    </div>
+  );
+}
+
+function Pictogram({ glyph }: { glyph: string }) {
+  return (
+    <span className="flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-lg border border-border bg-panel-2 text-[14px] text-muted">
+      {glyph}
+    </span>
   );
 }
 
 function DocumentMeta({ doc }: { doc: DocumentRow }) {
   return (
-    <div className="mt-0.5 flex items-baseline gap-3 font-mono text-[11px] text-muted-2">
-      <span>{(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
-      <span>·</span>
-      <span>{doc.mime_type.split("/").pop()}</span>
-      <PageCount count={doc.page_count} />
-      <RetryCount count={doc.retry_count} />
+    <div className="mt-px font-mono text-[10px] text-muted-2">
+      {metaLine(doc)}
     </div>
   );
 }
 
-function PageCount({ count }: { count: number | null }) {
-  return count != null ? <span>· {count} pages</span> : null;
+function metaLine(doc: DocumentRow): string {
+  const parts = [
+    `${(doc.file_size_bytes / 1024).toFixed(1)} KB`,
+    doc.mime_type.split("/").pop() ?? doc.mime_type,
+  ];
+  if (doc.page_count != null) {
+    parts.push(`${doc.page_count} ${unitFor(doc.mime_type)}`);
+  }
+  if (doc.status === "extracted") parts.push(extractedVerb(doc.mime_type));
+  if (doc.retry_count > 0) parts.push(`retried ${doc.retry_count}×`);
+  return parts.join(" · ");
 }
 
-function RetryCount({ count }: { count: number }) {
-  return count > 0 ? (
-    <span className="text-warn">· retried {count}×</span>
-  ) : null;
+function unitFor(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m.includes("spreadsheet") || m.includes("csv")) return "rows";
+  return "pages";
+}
+
+function extractedVerb(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m.startsWith("audio/") || m.startsWith("video/")) return "Transcribed";
+  if (m.startsWith("image/")) return "OCR'd";
+  return "OCR'd";
 }
 
 function ExtractionError({ error }: { error: string | null }) {
   if (!error) return null;
 
   return (
-    <div className="mt-1 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
+    <div className="mt-1 ml-11 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11px] text-bad">
       {error}
     </div>
   );
@@ -347,7 +474,7 @@ function ExtractionError({ error }: { error: string | null }) {
 function StatusBadge({ status }: { status: DocumentRow["status"] }) {
   return (
     <span
-      className={`shrink-0 rounded-full border px-2.5 py-0.5 font-medium text-[10.5px] uppercase tracking-wider ${STATUS_TONE[status]}`}
+      className={`shrink-0 rounded-chip border px-2 py-0.75 font-mono text-[9.5px] ${STATUS_TONE[status]}`}
     >
       {STATUS_LABEL[status]}
     </span>
@@ -362,7 +489,7 @@ function LocalUploads({
   if (files.length === 0) return null;
 
   return (
-    <ul className="mt-3 grid gap-2">
+    <ul className="mt-2 grid gap-2 px-2">
       {files.map((file) => (
         <FileRow key={file.uid} row={file} />
       ))}
@@ -378,7 +505,7 @@ function UploadFooter({
   rejectedNote: string | null;
 }) {
   return (
-    <div className="mt-4">
+    <div className="m-2">
       <UploadZone onFiles={addFiles} />
       <RejectedNote note={rejectedNote} />
     </div>

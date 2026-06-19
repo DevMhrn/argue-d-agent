@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { LIMITS, SUPPORTED_FILE_ACCEPT } from "@/lib/fileSupport";
 
 interface Props {
@@ -10,61 +10,52 @@ interface Props {
 }
 
 /**
- * Drag-drop + click-to-pick file zone. The parent owns the file list and
- * upload state; this component only emits the picked files.
+ * Drag-drop + click-to-pick file zone — the dashed "exhibit drop" area at the
+ * foot of the Documents panel (comp lines 255-258 / 869). The parent owns the
+ * file list and upload state; this component only emits the picked files.
  */
 export function UploadZone({ disabled, accept, onFiles }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
 
-  const handle = useCallback(
-    (list: FileList | null) => {
-      if (!list || list.length === 0) return;
-      onFiles(Array.from(list));
-    },
-    [onFiles],
-  );
+  function emit(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    onFiles(Array.from(list));
+  }
+
+  function pick() {
+    if (!disabled) inputRef.current?.click();
+  }
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => !disabled && inputRef.current?.click()}
-      onKeyDown={(e) => {
-        if ((e.key === "Enter" || e.key === " ") && !disabled) {
-          e.preventDefault();
-          inputRef.current?.click();
-        }
-      }}
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={pick}
       onDragOver={(e) => {
         e.preventDefault();
-        setOver(true);
+        if (!disabled) setOver(true);
       }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
-        if (!disabled) handle(e.dataTransfer.files);
+        if (!disabled) emit(e.dataTransfer.files);
       }}
-      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-card border-2 border-dashed p-10 text-center transition-colors ${
+      className={`block w-full appearance-none rounded-[10px] border-[1.5px] border-dashed p-3.5 text-center transition-colors ${
         disabled
           ? "cursor-not-allowed border-border-soft bg-panel/40 opacity-60"
           : over
-            ? "border-accent bg-accent/5"
-            : "border-border bg-panel hover:border-accent/60"
+            ? "cursor-pointer border-accent bg-[rgba(111,155,240,0.06)]"
+            : "cursor-pointer border-border bg-transparent hover:border-accent-dim hover:bg-[rgba(111,155,240,0.04)]"
       }`}
     >
-      <div className="text-2xl text-muted">⬆</div>
-      <div className="font-medium text-sm">
+      <div className="mb-1 text-[12px] text-muted">
         Drop documents here, or click to pick
       </div>
-      <div className="text-[12px] text-muted">
-        Documents (PDF · DOCX · Excel · CSV · HTML · MD · TXT) up to{" "}
-        {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
-        <br />
-        Images up to {LIMITS.image.maxMb} MB · max {LIMITS.image.maxFiles}/case
-        &nbsp;·&nbsp; Audio up to {LIMITS.audio.maxMb} MB · max{" "}
-        {LIMITS.audio.maxFiles}/case
+      <div className="font-mono text-[9.5px] text-muted-2 leading-normal">
+        PDF · DOCX · XLSX · CSV · up to {LIMITS.document.maxMb}MB · max{" "}
+        {LIMITS.document.maxFiles}/case
       </div>
       <input
         ref={inputRef}
@@ -72,8 +63,8 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         multiple
         hidden
         accept={accept ?? SUPPORTED_FILE_ACCEPT}
-        onChange={(e) => handle(e.target.files)}
+        onChange={(e) => emit(e.target.files)}
       />
-    </div>
+    </button>
   );
 }

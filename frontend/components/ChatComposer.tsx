@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Icon } from "@/components/Icon";
 import { SUPPORTED_FILE_ACCEPT } from "@/lib/fileSupport";
 
 interface Props {
@@ -135,9 +136,14 @@ function ComposerFrame({
       }}
       onDragLeave={() => onDragOverChange(false)}
       onDrop={onDrop}
-      className={`mx-auto w-full max-w-3xl rounded-[18px] border bg-panel/80 p-2 shadow-card backdrop-blur transition-colors ${
-        dragOver ? "border-accent/60 bg-accent/5" : "border-border"
-      }`}
+      className="mx-auto w-full p-2 shadow-card backdrop-blur transition-colors"
+      style={{
+        maxWidth: "780px",
+        borderRadius: "16px",
+        border: `1px solid ${dragOver ? "var(--color-accent-dim)" : "var(--color-border)"}`,
+        background: dragOver ? "rgba(111,155,240,0.05)" : "rgba(28,24,19,0.8)",
+        fontStyle: "normal",
+      }}
     >
       {children}
     </address>
@@ -157,9 +163,9 @@ function AttachButton({
       onClick={() => fileInputRef.current?.click()}
       disabled={disabled}
       aria-label="Attach files"
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-pill border border-border-soft bg-panel-2 text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-pill border border-border bg-panel-2 text-muted hover:border-accent-dim hover:text-accent disabled:opacity-50"
     >
-      <span className="text-base leading-none">📎</span>
+      <Icon name="upload" size={16} />
     </button>
   );
 }
@@ -226,16 +232,27 @@ function SendButton({
       type="button"
       onClick={onSend}
       disabled={disabled || !text.trim()}
-      className="flex h-9 shrink-0 items-center gap-1.5 rounded-pill border border-accent/40 bg-accent/15 px-3 text-accent text-sm hover:bg-accent/25 disabled:opacity-50"
+      className="flex h-9 shrink-0 items-center gap-1.5 px-3.5 font-semibold text-[13px] disabled:opacity-50"
+      style={{
+        borderRadius: "9px",
+        border: "none",
+        background: "linear-gradient(180deg,#6f9bf0,#5b8def)",
+        color: "#0e1320",
+      }}
     >
-      Send <span className="text-base leading-none">↵</span>
+      Send
+      <Icon name="arrow" size={14} strokeWidth={2} />
     </button>
   );
 }
 
 function ComposerHint({ hint }: { hint?: string }) {
   if (!hint) return null;
-  return <div className="mt-1.5 px-2 text-[11px] text-muted-2">{hint}</div>;
+  return (
+    <div className="mt-1.5 px-2 font-mono text-[10.5px] text-muted-2 tracking-[0.04em]">
+      {hint}
+    </div>
+  );
 }
 
 function attachFileList(
