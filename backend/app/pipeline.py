@@ -71,6 +71,12 @@ async def _ask(agent: AgentDef, user: str, mock_key: str) -> str:
     return await chat(provider=agent.provider, model=agent.model, system=agent.system, user=user, mock_key=mock_key, json=True)
 
 
+async def _working(room: Room, agent: AgentDef, action: str) -> None:
+    """Emit a transient 'agent is doing X' status for the live UI (e.g. shown as
+    'Liability Advocate is building its case …'). UI-only — see Room.status."""
+    await room.status(agent.name, agent.color, action)
+
+
 async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> list[Point]:
     last_violations: list[str] = []
     last_parse_error: str | None = None
@@ -326,6 +332,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
         f"documented damages usd: {claim.damagesUsd}\n\n"
         f"CLAIM DOCUMENTS:\n{docs_text}"
     )
+    await _working(room, AGENTS["intake"], "is reading the claim documents")
     intake: Intake | None = None
     for attempt in (1, 2):
         prompt = intake_prompt if attempt == 1 else (
@@ -357,6 +364,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     #        already persisted to nodes/edges — we run the debate on it, not rebuild),
     #    (b) the ledger lane building the typed graph from the claim now, or
     #    (c) the inline evidence agent when the lane is disabled.
+    await _working(room, AGENTS["evidence"], "is assembling the grounded evidence ledger")
     if ledger is not None:
         await room.post(AGENTS["evidence"].name, AGENTS["evidence"].color, "message",
                         f"Evidence ledger loaded from the persisted graph — {len(ledger.facts)} facts:\n" +
@@ -385,12 +393,16 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     context = f"EVIDENCE LEDGER:\n{render_ledger(ledger)}\n\nSTATUTES:\n{render_statutes(statutes)}"
 
     # 3) Advocate opens (independent)
+    await _working(room, AGENTS["advocate"], "is building the opening case for recovery")
     advocate_points = await _produce_points(AGENTS["advocate"], room, f"{context}\n\nMake your strongest opening case that the other driver is at fault.", "advocate_position", valid_ids)
     # 4) Opposing independent theory
+    await _working(room, AGENTS["opposing"], "is building its own theory of shared fault")
     opposing_theory = await _produce_points(AGENTS["opposing"], room, f"{context}\n\nIndependently build your own theory of how OUR insured shares fault. Do not respond to anyone yet.", "opposing_independent", valid_ids)
     # 5) Opposing attacks advocate
+    await _working(room, AGENTS["opposing"], "is attacking the advocate's points")
     attack_points = await _produce_points(AGENTS["opposing"], room, f"{context}\n\nThe Advocate argued:\n{_fmt(advocate_points)}\n\nAttack each of these points.", "opposing_attack", valid_ids)
     # 6) Advocate rebuts/concedes
+    await _working(room, AGENTS["advocate"], "is rebutting the opposing carrier")
     rebuttal = await _produce_rebuttal(AGENTS["advocate"], room, f"{context}\n\nThe opposing carrier attacked:\n{_fmt(attack_points)}\n\nRebut or concede each. Concede ONLY with a citation.", "advocate_rebuttal", valid_ids)
 
     await room.post(SYS, 250, "handoff", "Debate closed — no consensus round. Neutral Adjudicator now decides from the transcript.")
@@ -401,6 +413,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
         f"Opposing attacks:\n{_fmt(attack_points)}\n\nAdvocate rebuttal:\n{_fmt_rebuttal(rebuttal)}"
     )
     adj_prompt = f"{context}\n\nDEBATE TRANSCRIPT:\n{transcript}\n\nDecide the other driver's fault %."
+    await _working(room, AGENTS["adjudicator"], "and Adjudicator B are weighing the evidence (independently, in parallel)")
     raw_a, raw_b = await asyncio.gather(
         _ask(AGENTS["adjudicator"], adj_prompt, "adjudicator"),
         _ask(AGENTS["adjudicator_b"], adj_prompt, "adjudicator_b"),
@@ -521,6 +534,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     if not verifier_tasks:
         await room.post(ALIGN_GATE, 214, "gate", "No fact citations in transcript — nothing to align.")
     else:
+        await _working(room, AGENTS["verifier"], "is auditing every cited claim against its source fact")
         verifier_result = await _run_verifier(verifier_tasks, context)
         if verifier_result:
             s = summarize_alignment(verifier_result.results)
@@ -599,6 +613,7 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     # Fallback: a minimal template letter that includes the canonical fault%
     # and recovery$ so Letter Reconciliation passes by construction.
     drafter_user = f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter."
+    await _working(room, AGENTS["drafter"], "is drafting the formal subrogation demand letter")
     letter: str | None = None
     for attempt in (1, 2):
         try:

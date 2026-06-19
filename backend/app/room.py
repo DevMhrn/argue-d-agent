@@ -69,6 +69,15 @@ class Room:
         await self._deliver(p)
         return p
 
+    async def status(self, agent: str, color: int, action: str) -> None:
+        """Transient 'agent is doing X' signal for the live UI (e.g. "Adjudicator
+        is checking the evidence"). Deliberately NOT recorded in `postings`, NOT
+        persisted, and NOT sent to Band — it only nudges the SSE callback. So it
+        never pollutes the audit hash, the transcript table, or the Band room;
+        it's purely presentation while we wait for the agent's real output."""
+        if self._on_post:
+            self._on_post(Posting(self._seq, agent, color, "status", action))
+
     async def _deliver(self, p: Posting) -> None:  # overridden by BandRoom
         return None
 
