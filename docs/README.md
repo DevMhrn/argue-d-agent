@@ -15,6 +15,8 @@ Use this directory for durable project context. Keep current contracts in one ca
 - [Backend README](../backend/README.md) - production Python lane map, local commands, ingestion test notes.
 - [Frontend README](../frontend/README.md) - Next.js console routes, API contracts, upload behavior.
 - [Courtroom Orchestration Plan](./superpowers/plans/2026-06-19-courtroom-orchestration.md) - current implementation tracker for the bounded courtroom protocol.
+- [**Session Context (2026-06-19)**](./session-context-2026-06-19.md) - **the full raw context of everything done in this session**: per-MIME-class upload limits, CSV extractor, audio-model decision, curated test files, the live-run failure marathon + six progressive fixes (Intake schema, schema audit + 8 coercers, seed-on-mount race, SSE heartbeat, math-gate retry + degradation, Drafter retry + template fallback), merge of the courtroom-orchestration PR, design-iteration work, hard rules, verified vs untested, rejected ideas with reasoning, verbatim user feedback, files touched, decision log. Built for full context recovery from this file alone.
+- [Frontend Design Notes (local)](./design/) - design-iteration working notes (brief, critique, competitor research, enhancements). Local-only reference; not part of the deployed product.
 - [Contributor Guide](../AGENTS.md) - repository conventions for coding agents and human contributors.
 - [Fallow local gate](../AGENTS.md#fallow-local-gate) - repo health checks, audit gate, and legacy ignore scope.
 
