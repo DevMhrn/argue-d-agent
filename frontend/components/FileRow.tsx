@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import type { DocumentStatus } from "@/lib/types";
 
 export type LocalFileStage =
@@ -24,20 +25,63 @@ export interface LocalFile {
   error?: string;
 }
 
-const ACTIVE_TONE = "border-accent/40 bg-accent/10 text-accent";
-const BADGES: Record<LocalFileStage, { label: string; tone: string }> = {
-  queued: { label: "Queued", tone: "border-border bg-panel-2 text-muted" },
-  hashing: { label: "Hashing", tone: ACTIVE_TONE },
-  signing: { label: "Signing", tone: ACTIVE_TONE },
-  uploading: { label: "Uploading", tone: ACTIVE_TONE },
-  committing: { label: "Committing", tone: ACTIVE_TONE },
-  uploaded: { label: "Uploaded", tone: ACTIVE_TONE },
-  extracting: {
-    label: "Extracting",
-    tone: "border-warn/40 bg-warn/10 text-warn",
-  },
-  extracted: { label: "Extracted ✓", tone: "border-ok/40 bg-ok/10 text-ok" },
-  failed: { label: "Failed", tone: "border-bad/40 bg-bad/10 text-bad" },
+/**
+ * Per-stage presentation: the colored stage text (mono, comp line 878), the
+ * trailing badge (✓ / percent / label) and the color that drives both the
+ * stage text and the thin progress bar.
+ */
+interface StagePresentation {
+  /** Human stage line, e.g. "Signing → Uploading…". */
+  text: string;
+  /** CSS color token driving the stage text + progress fill. */
+  color: string;
+  /** Trailing badge contents — ✓ when terminal-good, else a short token. */
+  badge: string;
+  /** Badge chip color tone (token utilities). */
+  badgeTone: string;
+}
+
+const STAGE_TEXT: Record<LocalFileStage, string> = {
+  queued: "Queued",
+  hashing: "Hashing…",
+  signing: "Signing…",
+  uploading: "Uploading…",
+  committing: "Committing…",
+  uploaded: "Uploaded",
+  extracting: "Extracting…",
+  extracted: "Extracted ✓",
+  failed: "Failed",
+};
+
+// Stage text color (comp drives the progress fill from this same token).
+const STAGE_COLOR: Record<LocalFileStage, string> = {
+  queued: "var(--color-muted-2)",
+  hashing: "var(--color-accent)",
+  signing: "var(--color-warn)",
+  uploading: "var(--color-warn)",
+  committing: "var(--color-accent)",
+  uploaded: "var(--color-accent)",
+  extracting: "var(--color-accent)",
+  extracted: "var(--color-ok)",
+  failed: "var(--color-bad)",
+};
+
+const OK_BADGE = "border-ok/40 bg-ok/10 text-ok";
+const ACCENT_BADGE = "border-accent-dim bg-accent/10 text-accent-strong";
+const WARN_BADGE = "border-warn/40 bg-warn/10 text-warn";
+const BAD_BADGE = "border-bad/40 bg-bad/10 text-bad";
+const MUTED_BADGE = "border-border bg-panel-3 text-muted";
+
+const BADGE_TONE: Record<LocalFileStage, string> = {
+  queued: MUTED_BADGE,
+  hashing: ACCENT_BADGE,
+  signing: WARN_BADGE,
+  uploading: WARN_BADGE,
+  committing: ACCENT_BADGE,
+  uploaded: ACCENT_BADGE,
+  extracting: ACCENT_BADGE,
+  extracted: OK_BADGE,
+  failed: BAD_BADGE,
 };
 
 const SERVER_STAGE: Partial<Record<DocumentStatus, LocalFileStage>> = {
@@ -47,8 +91,20 @@ const SERVER_STAGE: Partial<Record<DocumentStatus, LocalFileStage>> = {
   uploaded: "uploaded",
 };
 
-function badgeFor(stage: LocalFileStage): { label: string; tone: string } {
-  return BADGES[stage];
+function presentationFor(row: LocalFile): StagePresentation {
+  return {
+    text: STAGE_TEXT[row.stage],
+    color: STAGE_COLOR[row.stage],
+    badge: badgeLabel(row),
+    badgeTone: BADGE_TONE[row.stage],
+  };
+}
+
+function badgeLabel(row: LocalFile): string {
+  if (row.stage === "extracted") return "✓";
+  if (row.stage === "failed") return "Failed";
+  if (showProgress(row.stage)) return `${Math.round(row.progress)}%`;
+  return STAGE_TEXT[row.stage];
 }
 
 /** Merge a per-document status from the polling endpoint into the local stage. */
@@ -70,6 +126,18 @@ function mergeUploadedStage(
   return local === "extracting" ? local : server;
 }
 
+/** Short format tag for the pictogram (PDF / XLS / CSV / …) from the filename. */
+function formatTag(name: string): string {
+  const ext = name.split(".").pop()?.toUpperCase() ?? "";
+  if (!ext || ext.length > 4) return "DOC";
+  if (ext === "XLSX") return "XLS";
+  if (ext === "JPEG") return "IMG";
+  if (ext === "PNG" || ext === "JPG" || ext === "WEBP" || ext === "GIF") {
+    return "IMG";
+  }
+  return ext;
+}
+
 export function FileRow({
   row,
   onRemove,
@@ -77,23 +145,46 @@ export function FileRow({
   row: LocalFile;
   onRemove?: () => void;
 }) {
+  const present = presentationFor(row);
+
   return (
-    <li className="rounded-pill border border-border bg-panel p-3">
-      <div className="flex items-center justify-between gap-3">
-        <FileInfo row={row} />
-        <FileActions row={row} onRemove={onRemove} />
+    <li className="w-full rounded-[10px] border border-border bg-panel-2 px-3.25 py-2.75">
+      <div className="flex items-center gap-2.5">
+        <FormatTag name={row.file.name} />
+        <FileInfo row={row} present={present} />
+        <FileActions present={present} stage={row.stage} onRemove={onRemove} />
       </div>
-      <ProgressBar row={row} />
+      <ProgressBar row={row} color={present.color} />
       <FileError error={row.error} />
     </li>
   );
 }
 
-function FileInfo({ row }: { row: LocalFile }) {
+function FormatTag({ name }: { name: string }) {
   return (
-    <div className="min-w-0">
-      <div className="truncate font-medium">{row.file.name}</div>
-      <div className="mt-0.5 font-mono text-[11px] text-muted-2">
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] border border-border bg-panel-3 font-mono text-[8.5px] text-muted">
+      {formatTag(name)}
+    </span>
+  );
+}
+
+function FileInfo({
+  row,
+  present,
+}: {
+  row: LocalFile;
+  present: StagePresentation;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="truncate font-medium text-[12.5px]">{row.file.name}</div>
+      <div
+        className="mt-0.5 font-mono text-[10px]"
+        style={{ color: present.color }}
+      >
+        {present.text}
+      </div>
+      <div className="mt-0.5 font-mono text-[10px] text-muted-2">
         {fileMeta(row)}
       </div>
     </div>
@@ -115,22 +206,22 @@ function shaMeta(sha256: string | undefined): string {
 }
 
 function FileActions({
-  row,
+  present,
+  stage,
   onRemove,
 }: {
-  row: LocalFile;
+  present: StagePresentation;
+  stage: LocalFileStage;
   onRemove?: () => void;
 }) {
-  const badge = badgeFor(row.stage);
-
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <span
-        className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 font-medium text-[11px] uppercase tracking-wider ${badge.tone}`}
+        className={`inline-flex items-center rounded-chip border px-2 py-0.5 font-mono text-[9.5px] ${present.badgeTone}`}
       >
-        {badge.label}
+        {present.badge}
       </span>
-      <RemoveButton stage={row.stage} onRemove={onRemove} />
+      <RemoveButton stage={stage} onRemove={onRemove} />
     </div>
   );
 }
@@ -149,7 +240,7 @@ function RemoveButton({
       type="button"
       onClick={onRemove}
       aria-label="Remove file"
-      className="text-muted hover:text-bad"
+      className="appearance-none border-0 bg-transparent p-0 text-muted leading-none hover:text-bad"
     >
       ✕
     </button>
@@ -160,15 +251,14 @@ function canRemove(stage: LocalFileStage, onRemove?: () => void) {
   return Boolean(onRemove) && stage !== "extracting" && stage !== "uploading";
 }
 
-function ProgressBar({ row }: { row: LocalFile }) {
+function ProgressBar({ row, color }: { row: LocalFile; color: string }) {
   if (!showProgress(row.stage)) return null;
 
+  const fill: CSSProperties = { width: `${row.progress}%`, background: color };
+
   return (
-    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-panel-3">
-      <div
-        className="h-full rounded-full bg-accent transition-all"
-        style={{ width: `${row.progress}%` }}
-      />
+    <div className="mt-2.25 h-0.75 overflow-hidden rounded-[3px] bg-panel-3">
+      <div className="h-full rounded-[3px] transition-all" style={fill} />
     </div>
   );
 }
@@ -181,7 +271,7 @@ function FileError({ error }: { error?: string }) {
   if (!error) return null;
 
   return (
-    <div className="mt-2 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[12px] text-bad">
+    <div className="mt-2 rounded-md border border-bad/40 bg-bad/5 px-2 py-1 text-[11.5px] text-bad">
       {error}
     </div>
   );

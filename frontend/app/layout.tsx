@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { AppChrome } from "../components/AppChrome";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -8,11 +8,18 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+// "The artifact" face — ledger quotes, case title, demand letter.
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  style: ["normal", "italic"],
+});
 
 export const metadata: Metadata = {
-  title: "Lumen — Subrogation Recovery Intelligence",
+  title: "Lumen — Subrogation Recovery Workbench",
   description:
-    "AI Subrogation Recovery Officer — investigates a claim, argues both sides, and produces a ready-to-send recovery packet.",
+    "AI subrogation recovery — investigates a claim, argues both sides over a locked evidence ledger, and produces a ready-to-send recovery packet.",
 };
 
 export default function RootLayout({
@@ -21,42 +28,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} antialiased`}
     >
-      <body className="flex min-h-full flex-col font-sans text-text">
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-6 border-border border-b bg-panel/60 px-6 py-3 backdrop-blur">
-          <Link href="/" className="flex items-center gap-3 no-underline">
-            <span
-              aria-hidden
-              className="relative h-9 w-9 rounded-pill shadow-[0_6px_18px_rgba(91,140,255,0.35)]"
-              style={{
-                background:
-                  "conic-gradient(from 140deg, var(--color-accent), var(--color-accent-2), var(--color-agent-verifier), var(--color-accent))",
-              }}
-            >
-              <span className="absolute inset-2.25 rounded bg-bg" />
-            </span>
-            <span className="flex flex-col leading-none">
-              <span className="font-semibold text-[19px] tracking-tight">
-                Lumen
-              </span>
-              <span className="mt-1 text-[11px] text-muted uppercase tracking-[0.08em]">
-                Subrogation Recovery Console
-              </span>
-            </span>
-          </Link>
-          <nav className="flex items-center gap-4 text-[13px] text-muted">
-            <Link href="/" className="hover:text-text">
-              Cases
-            </Link>
-            <Link
-              href="/cases/new"
-              className="rounded-pill border border-border bg-panel-2 px-3 py-1.5 text-text hover:border-accent"
-            >
-              + New case
-            </Link>
-          </nav>
-        </header>
+      <body className="flex min-h-screen flex-col font-sans text-text">
+        <AppChrome />
         <main className="flex flex-1 flex-col">{children}</main>
       </body>
     </html>
