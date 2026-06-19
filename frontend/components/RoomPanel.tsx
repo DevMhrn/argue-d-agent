@@ -34,6 +34,7 @@ export function RoomPanel({
         postings={postings}
         emptyAction="Run investigation"
         activity={activity}
+        running={isRunning(status)}
       />
     </section>
   );

@@ -4,12 +4,18 @@ source-alignment, escalation, and the demand letter (ported from src/pipeline.ts
 from __future__ import annotations
 import asyncio
 import json
+import os
 import re
 from dataclasses import dataclass
 
 from .agents import AGENTS, AgentDef
 from .config import ESCALATE_USD, PURSUE_MIN_USD, PURSUE_MIN_FAULT_PCT, USE_LEDGER_LANE
-from .providers import chat
+from .providers import chat, is_mock
+
+# Minimum time an agent's "is doing X" beat stays visible before its output, so
+# the work is perceptible (anti-flicker). Only enforced in mock mode — live model
+# latency already provides the beat. Override via LUMEN_THINK_FLOOR_MS.
+_THINK_FLOOR_S = float(os.getenv("LUMEN_THINK_FLOOR_MS", "1200")) / 1000.0
 from .gates import check_points, check_ledger_anchoring, check_adjudicator_math, MathGateResult
 from .verifier import collect_verifier_tasks, summarize_alignment, VerifierTask
 from .ledger import valid_citation_ids, render_ledger, render_statutes
@@ -73,8 +79,14 @@ async def _ask(agent: AgentDef, user: str, mock_key: str) -> str:
 
 async def _working(room: Room, agent: AgentDef, action: str) -> None:
     """Emit a transient 'agent is doing X' status for the live UI (e.g. shown as
-    'Liability Advocate is building its case …'). UI-only — see Room.status."""
+    'Liability Advocate is building its case …'). UI-only — see Room.status.
+
+    In mock mode the model returns instantly, so hold the beat for a moment — this
+    is the perceptible 'thinking' time (not dead air; the indicator is animating).
+    Live mode skips it because real model latency already provides the beat."""
     await room.status(agent.name, agent.color, action)
+    if is_mock() and _THINK_FLOOR_S > 0:
+        await asyncio.sleep(_THINK_FLOOR_S)
 
 
 async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> list[Point]:

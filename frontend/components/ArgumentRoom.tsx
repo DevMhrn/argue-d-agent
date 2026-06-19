@@ -48,6 +48,7 @@ export function ArgumentRoom({
         isLocked={isLocked}
         lockedReason={lockedReason}
         activity={activity}
+        running={running}
       />
     </section>
   );
@@ -100,11 +101,13 @@ function ArgumentRoomBody({
   isLocked,
   lockedReason,
   activity,
+  running,
 }: {
   postings: RoomPosting[];
   isLocked: boolean;
   lockedReason: string | null;
   activity: { agent: string; content: string } | null;
+  running: boolean;
 }) {
   if (isLocked && postings.length === 0) {
     return <LockedRoomNotice reason={lockedReason} />;
@@ -116,6 +119,7 @@ function ArgumentRoomBody({
       emptyAction="Open the room"
       tone="argument"
       activity={activity}
+      running={running}
     />
   );
 }

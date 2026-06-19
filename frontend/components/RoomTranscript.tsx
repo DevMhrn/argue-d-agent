@@ -53,39 +53,52 @@ interface RoomTranscriptProps {
   /** Transient "agent is doing X" indicator shown at the foot of the feed while
    *  we wait for the next message. */
   activity?: { agent: string; content: string } | null;
+  /** True while the run is live (streaming/connecting). Drives a generic
+   *  "deliberating…" beat so the indicator is never blank between agents. */
+  running?: boolean;
 }
+
+const GENERIC_BEAT = { agent: "", content: "deliberating…" };
 
 export function RoomTranscript({
   postings,
   emptyAction,
   tone = "room",
   activity = null,
+  running = false,
 }: RoomTranscriptProps) {
   const feedRef = useRef<HTMLDivElement>(null);
+  // A specific agent beat when we have one; otherwise, while the run is live, a
+  // generic beat — so the room never goes blank between steps.
+  const beat = activity ?? (running ? GENERIC_BEAT : null);
 
   useEffect(() => {
     feedRef.current?.scrollTo({
       top: feedRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [postings.length, activity?.content]);
+  }, [postings.length, beat?.content]);
+
+  if (postings.length === 0 && !beat) {
+    return (
+      <div ref={feedRef} className="flex-1 overflow-auto p-5">
+        <EmptyRoomState action={emptyAction} />
+      </div>
+    );
+  }
 
   return (
     <div ref={feedRef} className="flex-1 overflow-auto p-5">
-      {postings.length === 0 && !activity ? (
-        <EmptyRoomState action={emptyAction} />
-      ) : (
-        <ol className="space-y-3">
-          {postings.map((posting) => (
-            <Posting
-              key={`${posting.at ?? "na"}:${posting.agent}:${posting.kind}:${posting.content}`}
-              posting={posting}
-              tone={tone}
-            />
-          ))}
-          {activity ? <ActivityIndicator activity={activity} /> : null}
-        </ol>
-      )}
+      <ol className="space-y-3">
+        {postings.map((posting) => (
+          <Posting
+            key={`${posting.at ?? "na"}:${posting.agent}:${posting.kind}:${posting.content}`}
+            posting={posting}
+            tone={tone}
+          />
+        ))}
+        {beat ? <ActivityIndicator activity={beat} /> : null}
+      </ol>
     </div>
   );
 }
@@ -103,9 +116,11 @@ function ActivityIndicator({
         <ActivityDot delay="160ms" />
         <ActivityDot delay="320ms" />
       </span>
-      <span className={`font-semibold text-[12px] ${meta.color}`}>
-        {activity.agent}
-      </span>
+      {activity.agent ? (
+        <span className={`font-semibold text-[12px] ${meta.color}`}>
+          {activity.agent}
+        </span>
+      ) : null}
       <span className="text-[12.5px] text-muted italic">
         {activity.content}
       </span>
