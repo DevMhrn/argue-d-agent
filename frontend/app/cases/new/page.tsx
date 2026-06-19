@@ -170,9 +170,7 @@ export default function NewCasePage() {
 
       setFile(row.uid, { stage: "committing" });
       const committed = await commitUpload(presign.document_id);
-      setFile(row.uid, {
-        stage: committed.status === "extracting" ? "extracting" : "uploaded",
-      });
+      setFile(row.uid, { stage: stageAfterCommit(committed.status) });
     } catch (err) {
       setFile(row.uid, {
         stage: "failed",
@@ -363,6 +361,10 @@ function isExtractedStage(stage: LocalFile["stage"]): boolean {
 
 function isInFlightStage(stage: LocalFile["stage"]): boolean {
   return IN_FLIGHT_STAGES.has(stage);
+}
+
+function stageAfterCommit(status: string): LocalFile["stage"] {
+  return status === "extracting" ? "extracting" : "uploaded";
 }
 
 const IN_FLIGHT_STAGES = new Set<LocalFile["stage"]>([

@@ -7,8 +7,9 @@ ignorePatterns = [
   "frontend/_legacy/**",
 ]
 
-# These dependencies are only used by the ignored legacy demo stack.
+# These dependencies are root-only tooling or used by the ignored legacy demo stack.
 ignoreDependencies = [
+  "babel-plugin-react-compiler",
   "dotenv",
   "express",
   "openai",

@@ -187,6 +187,25 @@ def _parse_rebuttal(raw: str) -> Rebuttal:
     return Rebuttal.model_validate(data)
 
 
+def _parse_intake(raw: str, claim: ClaimInput) -> Intake:
+    data = _safe_json(raw)
+    try:
+        return Intake.model_validate(data)
+    except Exception:
+        parties = data.get("parties") if isinstance(data.get("parties"), dict) else {}
+        return Intake.model_validate(
+            {
+                "parties": {
+                    "insured": str(parties.get("insured") or claim.insured),
+                    "otherParty": str(parties.get("otherParty") or claim.otherParty),
+                },
+                "date": str(data.get("date") or "not in evidence"),
+                "location": str(data.get("location") or "not in evidence"),
+                "damagesUsd": claim.damagesUsd,
+            }
+        )
+
+
 def _parse_letter(raw: str) -> str:
     try:
         parsed = _safe_json(raw)
@@ -293,20 +312,30 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
 
     await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
 
-    # 1) Intake — with a single retry on JSON-parse failure. If both attempts
-    # fail, fall back to a minimal Intake derived from the ClaimInput rather
-    # than killing the run; the case-level damages stay authoritative for math.
-    intake_user = f"CLAIM DOCUMENTS:\n{docs_text}"
+    # 1) Intake — combines main's enriched prompt + _parse_intake helper with
+    # HEAD's retry-on-parse-failure. main's helper handles schema-shape errors
+    # cleanly; the retry covers transient API errors / model-returns-prose; the
+    # final fallback constructs a usable Intake from the ClaimInput so the run
+    # never dies on Intake even if both attempts fail.
+    intake_prompt = (
+        "CASE METADATA:\n"
+        f"caseId: {claim.caseId}\n"
+        f"insured: {claim.insured}\n"
+        f"otherParty: {claim.otherParty}\n"
+        f"jurisdiction: {claim.jurisdiction}\n"
+        f"documented damages usd: {claim.damagesUsd}\n\n"
+        f"CLAIM DOCUMENTS:\n{docs_text}"
+    )
     intake: Intake | None = None
     for attempt in (1, 2):
-        prompt = intake_user if attempt == 1 else (
-            f"{intake_user}\n\nYour previous response was not valid JSON. Return ONLY "
-            f"the JSON in the requested shape — no prose, no markdown."
+        prompt = intake_prompt if attempt == 1 else (
+            f"{intake_prompt}\n\nYour previous response was not valid JSON. "
+            f"Return ONLY the JSON in the requested shape — no prose, no markdown."
         )
         try:
-            intake = Intake.model_validate(_safe_json(await _ask(AGENTS["intake"], prompt, f"intake#{attempt}")))
+            intake = _parse_intake(await _ask(AGENTS["intake"], prompt, f"intake#{attempt}" if attempt > 1 else "intake"), claim)
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             if attempt == 2:
                 await room.post(SYS, 196, "gate",
                                 f"Intake agent failed to return parseable JSON after retry ({type(e).__name__}). "

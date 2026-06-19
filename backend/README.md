@@ -30,6 +30,7 @@ backend/
 │   ├── statute.py
 │   ├── node.py
 │   ├── edge.py
+│   ├── run.py
 │   ├── transcript.py
 │   └── decision.py
 │
@@ -57,15 +58,9 @@ backend/
         └── 002_seed_statutes.sql#     Public statute data
 ```
 
-## Three lanes, three owners
+## Lane boundaries
 
-| Lane | Owner | Writes | Reads | Triggered by |
-|---|---|---|---|---|
-| Ingestion | Aman | `documents`, `document_pages`, `cases.ingestion_complete` | uploaded files | new case POST |
-| Ledger | Gowtham | `nodes`, `edges`, `cases.ledger_complete` | `documents`, `document_pages`, `statutes` | `cases.ingestion_complete = true` |
-| Orchestration | Sudharsan | `transcript`, `decisions`, `cases.finalized` | `cases`, `nodes`, `edges`, `document_pages`, `statutes` | `cases.ledger_complete = true` |
-
-Each lane writes only its own tables and reads only the upstream ones. The boolean flags on `cases` are the cross-stage handoff.
+The stage ownership contract lives in [`backend/db/README.md`](./db/README.md). In short: ingestion owns documents/pages, ledger owns nodes/edges, and orchestration owns runs/transcript/decisions. Human approval persistence and flipping `cases.finalized` are still pending.
 
 ## Running locally
 

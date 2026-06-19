@@ -108,8 +108,8 @@ export interface CaseStatusResponse {
 // The cases list shown on / is the union of:
 //   - Supabase cases from /api/ingest/* (real, post-upload)
 //   - data/cases.json static cases (mock-only sample claims for the demo)
-// Until Sudharsan rewrites api_run to read from Supabase, the live debate
-// pipeline still uses the static claim shape — we surface both.
+// UUID cases run over the persisted ledger graph; demo cases still use the
+// bundled static claim shape.
 
 export interface LegacyCase {
   source?: "demo";
@@ -278,12 +278,7 @@ export interface RunReplay {
  * (Prior values like "agent" / "letter" / "verdict" never matched what the
  * server actually sends; the live SSE payload uses these five.)
  */
-export type RoomKind =
-  | "message"
-  | "handoff"
-  | "gate"
-  | "decision"
-  | "system";
+export type RoomKind = "message" | "handoff" | "gate" | "decision" | "system";
 
 export interface RoomPosting {
   agent: string;

@@ -5,6 +5,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useRef,
   useState,
 } from "react";
@@ -28,14 +29,27 @@ export function ChatComposer(props: Props) {
   const composer = useComposer(props);
 
   return (
-    <ComposerFrame composer={composer}>
+    <ComposerFrame
+      dragOver={composer.dragOver}
+      onDrop={composer.handleDrop}
+      onDragOverChange={composer.setDragOver}
+    >
       <div className="flex items-end gap-2">
-        <AttachButton composer={composer} disabled={props.disabled} />
-        <FileInput composer={composer} />
+        <AttachButton
+          fileInputRef={composer.fileInputRef}
+          disabled={props.disabled}
+        />
+        <FileInput
+          fileInputRef={composer.fileInputRef}
+          onChange={composer.handleFileChange}
+        />
         <TextEntry
-          composer={composer}
+          textareaRef={composer.textareaRef}
+          text={composer.text}
           disabled={props.disabled}
           placeholder={props.placeholder}
+          onChange={composer.handleTextChange}
+          onKeyDown={composer.handleKey}
         />
         <SendButton
           text={composer.text}
@@ -101,25 +115,27 @@ function useComposer({ disabled, onSend, onAttach }: ComposerOptions) {
   };
 }
 
-type ComposerState = ReturnType<typeof useComposer>;
-
 function ComposerFrame({
-  composer,
+  dragOver,
+  onDrop,
+  onDragOverChange,
   children,
 }: {
-  composer: ComposerState;
+  dragOver: boolean;
+  onDrop: (e: DragEvent<HTMLDivElement>) => void;
+  onDragOverChange: (dragOver: boolean) => void;
   children: ReactNode;
 }) {
   return (
     <div
       onDragOver={(e) => {
         e.preventDefault();
-        composer.setDragOver(true);
+        onDragOverChange(true);
       }}
-      onDragLeave={() => composer.setDragOver(false)}
-      onDrop={composer.handleDrop}
+      onDragLeave={() => onDragOverChange(false)}
+      onDrop={onDrop}
       className={`mx-auto w-full max-w-3xl rounded-[18px] border bg-panel/80 p-2 shadow-card backdrop-blur transition-colors ${
-        composer.dragOver ? "border-accent/60 bg-accent/5" : "border-border"
+        dragOver ? "border-accent/60 bg-accent/5" : "border-border"
       }`}
     >
       {children}
@@ -128,16 +144,16 @@ function ComposerFrame({
 }
 
 function AttachButton({
-  composer,
+  fileInputRef,
   disabled,
 }: {
-  composer: ComposerState;
+  fileInputRef: RefObject<HTMLInputElement | null>;
   disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={() => composer.fileInputRef.current?.click()}
+      onClick={() => fileInputRef.current?.click()}
       disabled={disabled}
       aria-label="Attach files"
       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-pill border border-border-soft bg-panel-2 text-muted hover:border-accent hover:text-accent disabled:opacity-50"
@@ -147,36 +163,48 @@ function AttachButton({
   );
 }
 
-function FileInput({ composer }: { composer: ComposerState }) {
+function FileInput({
+  fileInputRef,
+  onChange,
+}: {
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+}) {
   return (
     <input
-      ref={composer.fileInputRef}
+      ref={fileInputRef}
       type="file"
       multiple
       hidden
       accept=".pdf,.docx,.html,.htm,.txt,.md,application/pdf"
-      onChange={composer.handleFileChange}
+      onChange={onChange}
     />
   );
 }
 
 function TextEntry({
-  composer,
+  textareaRef,
+  text,
   disabled,
   placeholder,
+  onChange,
+  onKeyDown,
 }: {
-  composer: ComposerState;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  text: string;
   disabled?: boolean;
   placeholder?: string;
+  onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   return (
     <textarea
-      ref={composer.textareaRef}
+      ref={textareaRef}
       rows={1}
-      value={composer.text}
+      value={text}
       disabled={disabled}
-      onChange={composer.handleTextChange}
-      onKeyDown={composer.handleKey}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
       placeholder={placeholder ?? "Type or drop evidence files…"}
       className="flex-1 resize-none bg-transparent px-2 py-2 text-[14px] leading-relaxed outline-none placeholder:text-muted-2"
     />

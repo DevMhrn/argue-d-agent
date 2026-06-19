@@ -1,6 +1,8 @@
 # Lumen — AI Subrogation Recovery Officer
 ### Plan for the Band of Agents Hackathon (lablab.ai)
 
+> Historical plan. Use [Architecture](./architecture.md), [Master Context & Decision Log](./CONTEXT.md), and package READMEs for current implementation contracts.
+
 > **One-liner:** Insurance companies lose billions every year because chasing down money owed to them is too slow and manual. Lumen is a team of AI specialists that investigates a claim, argues both sides to pressure-test it, and produces a ready-to-send recovery package in minutes — so insurers actually collect the money instead of letting it slip away.
 
 ---
@@ -48,7 +50,7 @@ Work that takes a small team ~2 weeks comes out in minutes. The human still sign
 
 ## 5. The agent team
 
-> Built across **three independent model families** so the adversarial parts are genuinely independent — not one model arguing with itself. **Pitch line:** *"The Advocate (Claude) and the Opposing red team (GPT) argue; two adjudicators on different families (Claude vs Gemini) must agree. Band is what lets them collaborate."*
+> Built across **two assigned model families** so the adversarial parts are genuinely independent — not one model arguing with itself. **Pitch line:** *"The Advocate (Claude) and the Opposing red team (GPT) argue; two adjudicators on different families (Claude vs GPT) must agree. Band is what lets them collaborate."*
 
 ### Core team (must-have for the demo)
 
@@ -99,7 +101,7 @@ Author 3 test cases with known answers — and **make one a loser** (our side ge
 
 - **Frontend (our clarity win, plays to a full-stack team):** web app with 3 panels — left: upload / "Load sample claim"; center: the live Band room as a color-coded chat where you *watch* agents argue and hand off; right: live "Decision State" panel (current fault %, recovery $, confidence, escalation flag + human Approve/Reject). Stream with websockets/SSE.
 - **Backend:** orchestrates the agents (each = role + prompt + model), all registered in a Band room; relays the room to the UI; enforces the citation gate + turn protocol.
-- **Models:** Anthropic (Claude) + Google (Gemini) + OpenAI (GPT), all via OpenAI-compatible endpoints.
+- **Models:** Anthropic (Claude) + OpenAI (GPT), all via OpenAI-compatible endpoints.
 - **Deploy:** frontend on Vercel, backend on Railway/Render/Fly. **"Load sample claim" button is mandatory** so judges try it in one click.
 - **Data:** synthetic claims built on **public NHTSA crash-report formats** + real public state negligence statutes. No real personal data.
 
@@ -125,7 +127,7 @@ Author 3 test cases with known answers — and **make one a loser** (our side ge
 2. **0:20–0:35 Idea** — a team of AI specialists that argue both sides and produce a ready-to-send recovery package, coordinated by Band.
 3. **0:35–2:20 Live run** — load the sample claim; narrate the room: facts extracted → Advocate vs Opposing **disagree** → Adjudicator decides with shown math → big claim **escalates** → click Approve. Point at Band doing handoffs and enforcing "no claim without evidence."
 4. **2:20–2:50 Why it's special** — different model per specialist, two providers, real disagreement, and it tells you when *not* to pursue.
-5. **2:50–3:00 Close** — the dollar recovered, "coordinated on Band, with agents across Claude, Gemini, and GPT."
+5. **2:50–3:00 Close** — the dollar recovered, "coordinated on Band, with agents across Claude and GPT."
 
 ## 10. Pitch deck (8 slides)
 
@@ -150,4 +152,4 @@ Title → Problem ($15–20B) → Why one AI fails here → The team (agent diag
 - **Original** — insurance subrogation is untouched, by both the contest field and the broader AI-startup landscape.
 - **Real value** — a concrete dollar amount on screen; touches every property/auto insurer.
 - **Genuinely multi-agent** — separate departments + legal privilege make multiple agents *required*, not decorative.
-- **Genuinely independent agents** — the debate and the dual-adjudicator consensus span three different model families (Claude / Gemini / GPT), so "diverse models resist collusion" is real, not cosmetic.
+- **Genuinely independent agents** — the debate and the dual-adjudicator consensus span two assigned model families (Claude / GPT), so "diverse models resist collusion" is real, not cosmetic.

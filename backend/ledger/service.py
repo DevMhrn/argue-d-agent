@@ -6,7 +6,7 @@
   1. reads the case + documents + pages + statutes (through the ingestion
      repository, which owns those tables),
   2. builds the typed Evidence Ledger graph (deterministic mock graph with no
-     keys; the real Gemini extraction agent in live mode),
+     keys; the configured Evidence Aggregator agent in live mode),
   3. in live mode validates every Fact's verbatim_quote against the real page
      text (the builder already prunes non-anchoring facts; we re-check + log),
   4. writes nodes/edges via the asyncpg LedgerWriteRepository, and

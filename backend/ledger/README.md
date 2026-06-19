@@ -64,9 +64,10 @@ the downstream Fact Gate), shows the row counts it would persist, and the
 - **Offline/mock** (`is_mock()` — no provider keys): `build_ledger` returns a
   hand-verified graph from `mock_graphs.py` whose Fact quotes are exact substrings of
   the sample documents. Runs today with zero infra.
-- **Live**: `build_ledger` runs the Gemini extraction agent over the document
-  text, parses the typed graph, and **prunes any Fact whose verbatim_quote doesn't
-  anchor** — so the graph leaving this lane always passes the Fact Gate.
+- **Live**: `build_ledger` runs the configured Evidence Aggregator agent over the
+  document text, parses the typed graph, and **prunes any Fact whose
+  verbatim_quote doesn't anchor** — so the graph leaving this lane always passes
+  the Fact Gate.
 - **Persist (real flow)**: `service.build_and_persist_ledger(case_id)` →
   `db_repository.LedgerWriteRepository.write_graph` writes via **asyncpg** (one
   transaction: replace any prior graph, insert nodes capturing each generated UUID by
