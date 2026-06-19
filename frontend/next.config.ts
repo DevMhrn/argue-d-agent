@@ -10,8 +10,15 @@ import type { NextConfig } from "next";
  *
  * In production, point LUMEN_API_BASE_URL at the deployed backend (or deploy
  * frontend + backend behind the same hostname and keep the rewrite).
+ *
+ * The value may be a full URL (`https://lumen-api.onrender.com`) or a bare
+ * host (`lumen-api.onrender.com`). Render's blueprint `fromService` injects the
+ * bare host, so we prepend `https://` when no scheme is present.
  */
-const API_BASE = process.env.LUMEN_API_BASE_URL ?? "http://127.0.0.1:8000";
+const RAW_API_BASE = process.env.LUMEN_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE = /^https?:\/\//.test(RAW_API_BASE)
+  ? RAW_API_BASE
+  : `https://${RAW_API_BASE}`;
 
 const nextConfig: NextConfig = {
   // Pin the workspace root so Turbopack doesn't get confused by the root

@@ -1,0 +1,61 @@
+# =============================================================================
+# Lumen — Render Blueprint (Infrastructure as Code)
+# =============================================================================
+# Two web services from one repo:
+#   - lumen-api : FastAPI + SSE orchestration backend (Python)
+#   - lumen-web : Next.js 16 console (Node), proxies /api/* to lumen-api
+#
+# The frontend's LUMEN_API_BASE_URL is auto-wired to the backend's hostname via
+# `fromService`, so there is nothing to copy between services.
+#
+# Default mode is MOCK (LUMEN_MOCK=1): deterministic, no API keys, and no
+# external infra (no Supabase / Redis / B2). The demo cases `clean` and `loser`
+# run the full 8-agent hearing entirely in-memory.
+#
+# To enable a REAL Band room on the deployed backend, see DEPLOY.md
+# ("Upgrade: real Band room"): add band_config.yaml as a Render Secret File and
+# set LUMEN_BAND=1 on lumen-api.
+# =============================================================================
+
+services:
+  # --------------------------------------------------------------- backend ---
+  - type: web
+    name: lumen-api
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m backend.app.run_server
+    healthCheckPath: /api/cases
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      # Deterministic, offline, zero-cost demo content. Remove / set to 0 only
+      # when real provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) are added.
+      - key: LUMEN_MOCK
+        value: "1"
+      # Pace the mock postings so the room "unfolds" live for judges instead of
+      # dumping the whole transcript instantly.
+      - key: LUMEN_MOCK_DELAY_MS
+        value: "550"
+
+  # -------------------------------------------------------------- frontend ---
+  - type: web
+    name: lumen-web
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: corepack enable && pnpm install && pnpm build
+    startCommand: pnpm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Auto-filled with the backend service's hostname (e.g.
+      # lumen-api.onrender.com). next.config.ts adds the https:// scheme.
+      - key: LUMEN_API_BASE_URL
+        fromService:
+          type: web
+          name: lumen-api
+          property: host
