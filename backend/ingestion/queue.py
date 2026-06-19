@@ -13,6 +13,7 @@ Two roles in this module:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -20,6 +21,16 @@ from uuid import UUID
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
+
+
+def _is_transient_conn_error(exc: BaseException) -> bool:
+    """A Redis/network error worth retrying — a flaky link, a brief DNS blip, an
+    Upstash hiccup. Builtin OSError covers socket.gaierror; redis raises its own
+    ConnectionError/TimeoutError that aren't builtin subclasses, so match by name."""
+    if isinstance(exc, (OSError, ConnectionError, TimeoutError, asyncio.TimeoutError)):
+        return True
+    name = type(exc).__name__
+    return "Connection" in name or "Timeout" in name
 
 
 @dataclass(frozen=True)
@@ -70,11 +81,41 @@ class ExtractionQueue:
             )
         return self._pool
 
+    async def _reset_pool(self) -> None:
+        pool, self._pool = self._pool, None
+        if pool is not None:
+            try:
+                await pool.close()
+            except Exception:  # noqa: BLE001 — best-effort; we're discarding it anyway
+                pass
+
+    async def _enqueue(self, job_name: str, *args, _job_id: str | None = None,
+                       attempts: int = 4, base_delay: float = 0.4):
+        """Enqueue with retry + exponential backoff on transient Redis/DNS blips
+        (common on flaky links; also makes deploys resilient to a brief Upstash
+        wobble). Drops the failed pool between tries so a fresh connection is made.
+        Non-transient errors propagate immediately."""
+        last: BaseException | None = None
+        for i in range(attempts):
+            try:
+                pool = await self._get_pool()
+                return await pool.enqueue_job(job_name, *args, _job_id=_job_id)
+            except Exception as e:  # noqa: BLE001
+                if not _is_transient_conn_error(e):
+                    raise
+                last = e
+                await self._reset_pool()
+                if i < attempts - 1:
+                    await asyncio.sleep(base_delay * (2 ** i))
+        raise RuntimeError(
+            f"enqueue {job_name} failed after {attempts} attempts "
+            f"(transient connection error): {last}"
+        ) from last
+
     async def enqueue_extract(self, document_id: UUID) -> str:
         """Queue an extraction job, return the arq job id."""
-        pool = await self._get_pool()
         # Stringify UUID so it survives JSON serialization in arq.
-        job = await pool.enqueue_job(self.JOB_NAME, str(document_id))
+        job = await self._enqueue(self.JOB_NAME, str(document_id))
         if job is None:
             raise RuntimeError(
                 f"Failed to enqueue {self.JOB_NAME}({document_id}) — arq returned None."
@@ -88,8 +129,7 @@ class ExtractionQueue:
         the same id is queued/running, so the initial-build triggers (auto-finalize
         + the finalize endpoint) collapse into ONE build. Leave `job_id` unset for
         explicit rebuilds (add-a-doc, manual) so they always run."""
-        pool = await self._get_pool()
-        job = await pool.enqueue_job(self.LEDGER_JOB_NAME, str(case_id), _job_id=job_id)
+        job = await self._enqueue(self.LEDGER_JOB_NAME, str(case_id), _job_id=job_id)
         if job is None:
             if job_id is not None:
                 # A build for this case is already queued/running — intended de-dup.
