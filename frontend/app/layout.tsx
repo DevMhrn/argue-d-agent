@@ -26,11 +26,23 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
+    // suppressHydrationWarning on html + body: browser extensions
+    // (password managers, screenshot tools, Grammarly-style assistants,
+    // wallet plugins) inject attributes like `__processed_<uuid>__` onto
+    // these elements at runtime, which React's SSR HTML doesn't have. This
+    // causes a hydration mismatch on every page load. The flag tells React
+    // to ignore attribute drift specifically at the html/body boundary —
+    // not for descendant elements, so genuine app-level mismatches still
+    // throw. See https://react.dev/link/hydration-mismatch.
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} antialiased`}
+      suppressHydrationWarning
     >
-      <body className="flex min-h-screen flex-col font-sans text-text">
+      <body
+        className="flex min-h-screen flex-col font-sans text-text"
+        suppressHydrationWarning
+      >
         <AppChrome />
         <main className="flex flex-1 flex-col">{children}</main>
       </body>
