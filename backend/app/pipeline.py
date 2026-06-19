@@ -73,13 +73,38 @@ async def _ask(agent: AgentDef, user: str, mock_key: str) -> str:
 
 async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> list[Point]:
     last_violations: list[str] = []
+    last_parse_error: str | None = None
     for attempt in (1, 2):
-        prompt = user if attempt == 1 else (
-            f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
-            + "\n- ".join(last_violations)
-            + "\nReturn the same points but make EVERY point cite a valid id."
-        )
-        parsed = Points.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
+        if attempt == 1:
+            prompt = user
+        elif last_parse_error is not None:
+            prompt = (
+                f"{user}\n\nYour previous response could not be parsed as JSON. "
+                f"Return ONLY valid JSON in the shape {{'points': [{{'claim': str, 'citations': [str]}}]}}. "
+                f"No prose, no markdown fences, no apology — JSON only."
+            )
+        else:
+            prompt = (
+                f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
+                + "\n- ".join(last_violations)
+                + "\nReturn the same points but make EVERY point cite a valid id."
+            )
+        try:
+            parsed = Points.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
+        except Exception as e:
+            last_parse_error = str(e)
+            await room.post(CITE_GATE, 196, "gate",
+                            f"REJECTED {agent.name} (attempt {attempt}): unparseable response ({type(e).__name__})")
+            if attempt == 2:
+                # Bail with empty points rather than crashing the run. The
+                # downstream consensus/escalation path will surface this as an
+                # information-gap escalation, not a hard failure.
+                await room.post(agent.name, agent.color, "message",
+                                "(no parseable points — surfaced for human review)")
+                return []
+            continue
+
+        last_parse_error = None
         gate = check_points(parsed.points, valid_ids)
         if gate.ok:
             await room.post(agent.name, agent.color, "message", _fmt(parsed.points))
@@ -94,13 +119,38 @@ async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base:
 
 async def _produce_rebuttal(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> Rebuttal:
     last_violations: list[str] = []
+    last_parse_error: str | None = None
     for attempt in (1, 2):
-        prompt = user if attempt == 1 else (
-            f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
-            + "\n- ".join(last_violations)
-            + "\nEvery response must cite a valid id."
-        )
-        parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
+        if attempt == 1:
+            prompt = user
+        elif last_parse_error is not None:
+            prompt = (
+                f"{user}\n\nYour previous response could not be parsed as JSON. "
+                f"Return ONLY valid JSON in the shape "
+                f"{{'responses': [{{'stance': 'rebut'|'concede', 'claim': str, 'citations': [str]}}]}}. "
+                f"No prose, no markdown fences."
+            )
+        else:
+            prompt = (
+                f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
+                + "\n- ".join(last_violations)
+                + "\nEvery response must cite a valid id."
+            )
+        try:
+            parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
+        except Exception as e:
+            last_parse_error = str(e)
+            await room.post(CITE_GATE, 196, "gate",
+                            f"REJECTED {agent.name} (attempt {attempt}): unparseable rebuttal ({type(e).__name__})")
+            if attempt == 2:
+                # Empty rebuttal rather than killing the run.
+                empty = Rebuttal(responses=[])
+                await room.post(agent.name, agent.color, "message",
+                                "(no parseable rebuttal — surfaced for human review)")
+                return empty
+            continue
+
+        last_parse_error = None
         as_points = [Point(claim=r.claim, citations=r.citations) for r in parsed.responses]
         gate = check_points(as_points, valid_ids)
         if gate.ok or attempt == 2:
@@ -219,8 +269,30 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
 
     await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
 
-    # 1) Intake
-    intake = Intake.model_validate(_safe_json(await _ask(AGENTS["intake"], f"CLAIM DOCUMENTS:\n{docs_text}", "intake")))
+    # 1) Intake — with a single retry on JSON-parse failure. If both attempts
+    # fail, fall back to a minimal Intake derived from the ClaimInput rather
+    # than killing the run; the case-level damages stay authoritative for math.
+    intake_user = f"CLAIM DOCUMENTS:\n{docs_text}"
+    intake: Intake | None = None
+    for attempt in (1, 2):
+        prompt = intake_user if attempt == 1 else (
+            f"{intake_user}\n\nYour previous response was not valid JSON. Return ONLY "
+            f"the JSON in the requested shape — no prose, no markdown."
+        )
+        try:
+            intake = Intake.model_validate(_safe_json(await _ask(AGENTS["intake"], prompt, f"intake#{attempt}")))
+            break
+        except Exception as e:
+            if attempt == 2:
+                await room.post(SYS, 196, "gate",
+                                f"Intake agent failed to return parseable JSON after retry ({type(e).__name__}). "
+                                f"Falling back to case-level metadata.")
+                intake = Intake(
+                    parties=Intake.Parties(insured=claim.insured, otherParty=claim.otherParty),
+                    date="not in evidence",
+                    location="not in evidence",
+                    damagesUsd=claim.damagesUsd,
+                )
     # Display the agent's extracted figure when present, otherwise fall back to
     # the case-level damages (the authoritative number for fault math anyway).
     intake_damages_display = intake.damagesUsd if intake.damagesUsd is not None else claim.damagesUsd

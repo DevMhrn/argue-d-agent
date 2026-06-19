@@ -46,7 +46,11 @@ async def main() -> None:
     d = result.decision
     print("\n" + "─" * 60 + " RECOVERY PACKET")
     print(f"\n  Other driver fault: {d.otherDriverFaultPct}%   Confidence: {d.confidence}")
-    print(f"  Recovery demand:    ${d.recoveryUsd:,}  (of ${int(result.intake.damagesUsd):,} damages)")
+    # intake.damagesUsd can be None when the LLM correctly returns 'not in
+    # evidence' for unknown damages — fall back to the claim-level value, which
+    # is the authoritative number the fault math used anyway.
+    intake_damages = result.intake.damagesUsd if result.intake.damagesUsd is not None else claim.damagesUsd
+    print(f"  Recovery demand:    ${d.recoveryUsd:,}  (of ${int(intake_damages):,} damages)")
     print(f"  Status:             {'NEEDS HUMAN APPROVAL - ' + '; '.join(d.escalateReasons) if d.escalate else 'AUTO-CLEARED'}")
     print("\n" + "─" * 60 + " DEMAND LETTER\n")
     print("\n".join("  " + ln for ln in result.letter.split("\n")))
