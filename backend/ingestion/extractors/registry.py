@@ -8,17 +8,25 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .audio import AudioExtractor
 from .base import Extractor
+from .csv import CsvExtractor
 from .docx import DocxExtractor
+from .excel import ExcelExtractor
 from .html import HtmlExtractor
+from .image import ImageExtractor
 from .pdf import PdfExtractor
 from .text import TextExtractor
 
 _REGISTRY: list[Extractor] = [
     PdfExtractor(),
     DocxExtractor(),
+    ExcelExtractor(),
+    CsvExtractor(),
     HtmlExtractor(),
     TextExtractor(),
+    AudioExtractor(),
+    ImageExtractor(),
 ]
 
 # Flat map for fast lookup; built once at import.

@@ -49,6 +49,7 @@ from backend.schemas import (
 )
 
 from .extractors import ExtractedDocument, get_extractor, supported_mime_types
+from .limits import classify
 from .queue import ExtractionQueue
 from .repository import IngestionRepository
 from .storage import ObjectStorage, SignedUpload
@@ -182,6 +183,25 @@ class IngestService:
             raise ValueError(
                 f"Unsupported mime type {mime_type!r}. "
                 f"Supported: {supported_mime_types()}"
+            )
+        cls = classify(mime_type)
+        if cls is None:
+            raise ValueError(f"Unsupported mime type {mime_type!r}.")
+        if size > cls.max_bytes:
+            raise ValueError(
+                f"{cls.name.capitalize()} files are capped at {cls.max_mb} MB "
+                f"(this one is {size / (1024 * 1024):.1f} MB)."
+            )
+        existing = await self._repo.list_documents_for_case(case_id)
+        same_class = sum(
+            1
+            for d in existing
+            if classify(d.mime_type) is cls and d.sha256 != sha256
+        )
+        if same_class >= cls.max_files_per_case:
+            raise ValueError(
+                f"This case already has {same_class} {cls.name} file(s); "
+                f"the cap is {cls.max_files_per_case} per case."
             )
         key = self._storage_key(case_id, sha256, filename)
         doc = await self._repo.create_document(

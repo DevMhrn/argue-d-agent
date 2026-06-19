@@ -192,6 +192,12 @@ export function useRunStream() {
    * decision). Used by the case-detail page to replay the last debate from
    * the `transcript` + `decisions` tables on mount, so refresh preserves
    * what the user already saw.
+   *
+   * If an SSE stream is already open (the user clicked "Open the room" while
+   * the replay's API chain was still loading), this is a no-op — the live run
+   * is the user's current intent and replaying a prior result would close the
+   * stream mid-debate (and the backend's CancelledError handler would mark the
+   * fresh run as "failed (client disconnected)" — the bug this guards against).
    */
   const seed = (input: {
     caseId: string;
@@ -200,8 +206,7 @@ export function useRunStream() {
     letter?: string;
     status?: "complete" | "streaming" | "error";
   }) => {
-    sourceRef.current?.close();
-    sourceRef.current = null;
+    if (sourceRef.current) return;
     dispatch({
       type: "seed",
       caseId: input.caseId,

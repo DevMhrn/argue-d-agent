@@ -18,12 +18,17 @@
  *     This means newly-added documents to a "complete" case still surface.
  *   - Stop polling when every doc is terminal AND no local upload is in flight.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileRow } from "@/components/FileRow";
 import { UploadZone } from "@/components/UploadZone";
 import { getCaseStatus } from "@/lib/api";
+import {
+  classify,
+  type FileCategory,
+  type FileRejection,
+} from "@/lib/fileSupport";
 import type { DocumentRow } from "@/lib/types";
-import { SUPPORTED_FILES_LABEL, useCaseUpload } from "@/lib/useCaseUpload";
+import { useCaseUpload } from "@/lib/useCaseUpload";
 
 interface Props {
   caseUuid: string;
@@ -79,19 +84,19 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
     setRefreshNonce((n) => n + 1);
   }
 
-  function onRejected(rejected: File[]) {
-    const list = rejected
-      .map((f) => `${f.name} (${f.type || "unknown"})`)
-      .join(", ");
-    setRejectedNote(
-      `Can't ingest: ${list}. Only ${SUPPORTED_FILES_LABEL} supported in v1.`,
-    );
+  function onRejected(rejected: FileRejection[]) {
+    const list = rejected.map((r) => `${r.file.name} — ${r.message}`).join("; ");
+    setRejectedNote(`Can't ingest: ${list}`);
     window.setTimeout(() => setRejectedNote(null), 6000);
   }
 
+  const existingCountsByCategory = useMemo(
+    () => countDocsByCategory(docs),
+    [docs],
+  );
   const { files, addFiles, clearCommitted, anyInFlight } = useCaseUpload(
     caseUuid,
-    { onCommitted, onRejected },
+    { onCommitted, onRejected, existingCountsByCategory },
   );
 
   useEffect(() => {
@@ -317,4 +322,17 @@ function RejectedNote({ note }: { note: string | null }) {
       {note}
     </div>
   );
+}
+
+function countDocsByCategory(
+  docs: DocumentRow[],
+): Partial<Record<FileCategory, number>> {
+  const counts: Partial<Record<FileCategory, number>> = {};
+  for (const d of docs) {
+    if (d.status === "failed") continue;
+    const cat = classify(d.mime_type);
+    if (!cat) continue;
+    counts[cat] = (counts[cat] ?? 0) + 1;
+  }
+  return counts;
 }

@@ -18,7 +18,10 @@ Return ONLY valid JSON in the requested shape. No prose outside the JSON.
 INTAKE_PROMPT = f"""
 You are the Intake Parser. Read the First Notice of Loss and claim documents and
 extract the core facts of the incident. {GROUNDING_RULES}
-Output JSON: {{ "parties": {{"insured": str, "otherParty": str}}, "date": str, "location": str, "damagesUsd": number }}
+Output JSON: {{ "parties": {{"insured": str, "otherParty": str}}, "date": str, "location": str, "damagesUsd": number | null }}
+If a numeric field (damagesUsd) is not stated anywhere in the documents, return
+null (the JSON literal null, not a string). Do not invent a number. For string
+fields, return "not in evidence" verbatim when unknown.
 """.strip()
 
 EVIDENCE_PROMPT = f"""

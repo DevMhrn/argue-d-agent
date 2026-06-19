@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from backend.schemas import CaseCreate, CaseRow, DocumentRow
 
+from .limits import MAX_SIZE_BYTES
 from .queue import ExtractionQueue
 from .repository import IngestionRepository
 from .service import IngestService, PreparedUpload
@@ -41,7 +42,7 @@ class PrepareUploadRequest(BaseModel):
     case_id: UUID
     filename: str = Field(min_length=1, max_length=512)
     mime_type: str
-    size: int = Field(ge=1, le=50 * 1024 * 1024)  # 50 MB hard cap per file
+    size: int = Field(ge=1, le=MAX_SIZE_BYTES)  # outer envelope; service enforces per-class
     sha256: str = Field(min_length=64, max_length=64)
     document_kind: Optional[str] = None
 

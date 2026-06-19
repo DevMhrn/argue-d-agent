@@ -73,13 +73,38 @@ async def _ask(agent: AgentDef, user: str, mock_key: str) -> str:
 
 async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> list[Point]:
     last_violations: list[str] = []
+    last_parse_error: str | None = None
     for attempt in (1, 2):
-        prompt = user if attempt == 1 else (
-            f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
-            + "\n- ".join(last_violations)
-            + "\nReturn the same points but make EVERY point cite a valid id."
-        )
-        parsed = Points.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
+        if attempt == 1:
+            prompt = user
+        elif last_parse_error is not None:
+            prompt = (
+                f"{user}\n\nYour previous response could not be parsed as JSON. "
+                f"Return ONLY valid JSON in the shape {{'points': [{{'claim': str, 'citations': [str]}}]}}. "
+                f"No prose, no markdown fences, no apology — JSON only."
+            )
+        else:
+            prompt = (
+                f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
+                + "\n- ".join(last_violations)
+                + "\nReturn the same points but make EVERY point cite a valid id."
+            )
+        try:
+            parsed = Points.model_validate(_safe_json(await _ask(agent, prompt, f"{mock_key_base}#{attempt}")))
+        except Exception as e:
+            last_parse_error = str(e)
+            await room.post(CITE_GATE, 196, "gate",
+                            f"REJECTED {agent.name} (attempt {attempt}): unparseable response ({type(e).__name__})")
+            if attempt == 2:
+                # Bail with empty points rather than crashing the run. The
+                # downstream consensus/escalation path will surface this as an
+                # information-gap escalation, not a hard failure.
+                await room.post(agent.name, agent.color, "message",
+                                "(no parseable points — surfaced for human review)")
+                return []
+            continue
+
+        last_parse_error = None
         gate = check_points(parsed.points, valid_ids)
         if gate.ok:
             await room.post(agent.name, agent.color, "message", _fmt(parsed.points))
@@ -94,13 +119,38 @@ async def _produce_points(agent: AgentDef, room: Room, user: str, mock_key_base:
 
 async def _produce_rebuttal(agent: AgentDef, room: Room, user: str, mock_key_base: str, valid_ids: set[str]) -> Rebuttal:
     last_violations: list[str] = []
+    last_parse_error: str | None = None
     for attempt in (1, 2):
-        prompt = user if attempt == 1 else (
-            f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
-            + "\n- ".join(last_violations)
-            + "\nEvery response must cite a valid id."
-        )
-        parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
+        if attempt == 1:
+            prompt = user
+        elif last_parse_error is not None:
+            prompt = (
+                f"{user}\n\nYour previous response could not be parsed as JSON. "
+                f"Return ONLY valid JSON in the shape "
+                f"{{'responses': [{{'stance': 'rebut'|'concede', 'claim': str, 'citations': [str]}}]}}. "
+                f"No prose, no markdown fences."
+            )
+        else:
+            prompt = (
+                f"{user}\n\nThe Citation Gate REJECTED your previous answer:\n- "
+                + "\n- ".join(last_violations)
+                + "\nEvery response must cite a valid id."
+            )
+        try:
+            parsed = _parse_rebuttal(await _ask(agent, prompt, f"{mock_key_base}#{attempt}"))
+        except Exception as e:
+            last_parse_error = str(e)
+            await room.post(CITE_GATE, 196, "gate",
+                            f"REJECTED {agent.name} (attempt {attempt}): unparseable rebuttal ({type(e).__name__})")
+            if attempt == 2:
+                # Empty rebuttal rather than killing the run.
+                empty = Rebuttal(responses=[])
+                await room.post(agent.name, agent.color, "message",
+                                "(no parseable rebuttal — surfaced for human review)")
+                return empty
+            continue
+
+        last_parse_error = None
         as_points = [Point(claim=r.claim, citations=r.citations) for r in parsed.responses]
         gate = check_points(as_points, valid_ids)
         if gate.ok or attempt == 2:
@@ -220,6 +270,30 @@ async def _run_verifier(tasks: list[VerifierTask], context: str) -> Alignment | 
     return None
 
 
+def _fallback_letter(claim: ClaimInput, decision: Decision, recovery_usd: int, ledger: EvidenceLedger) -> str:
+    """Minimal deterministic demand letter, used only when the Drafter agent
+    fails both attempts. Includes the canonical fault % and recovery $ so the
+    Letter Reconciliation gate passes; the human reviewer reading this will
+    see clearly that the polished draft is missing and rewrite if needed."""
+    pct = int(round(decision.otherDriverFaultPct))
+    fact_lines = "\n".join(f"  - [{f.id}] {f.statement} (source: {f.source})" for f in ledger.facts[:8])
+    return (
+        f"[TEMPLATE FALLBACK — automated Drafter call failed; a human reviewer should rewrite this before sending.]\n\n"
+        f"RE: Subrogation Demand — Case {claim.caseId}\n"
+        f"From: {claim.insured} (our insured)\n"
+        f"To: Carrier for {claim.otherParty}\n"
+        f"Jurisdiction: {claim.jurisdiction}\n\n"
+        f"Our investigation finds your insured {pct}% at fault for the loss documented in case "
+        f"{claim.caseId}. On the basis of the cited evidence below and the comparative-negligence "
+        f"framework of {claim.jurisdiction}, we demand recovery in the amount of ${recovery_usd:,} "
+        f"(reflecting {pct}% of documented damages of ${int(claim.damagesUsd):,}).\n\n"
+        f"Key cited evidence:\n{fact_lines}\n\n"
+        f"Please respond within 30 days. Failure to respond will be treated as acceptance of liability "
+        f"and the demand will be forwarded to arbitration.\n\n"
+        f"Best regards,\nSubrogation Recovery Team"
+    )
+
+
 def _reconcile_letter(letter: str, decision: FinalDecision) -> list[str]:
     issues: list[str] = []
     pct = f"{decision.otherDriverFaultPct}%"
@@ -238,7 +312,11 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
 
     await room.post(SYS, 250, "system", f"Claim {claim.caseId} opened. Jurisdiction {claim.jurisdiction}. Documented damages {_usd(claim.damagesUsd)}.")
 
-    # 1) Intake
+    # 1) Intake — combines main's enriched prompt + _parse_intake helper with
+    # HEAD's retry-on-parse-failure. main's helper handles schema-shape errors
+    # cleanly; the retry covers transient API errors / model-returns-prose; the
+    # final fallback constructs a usable Intake from the ClaimInput so the run
+    # never dies on Intake even if both attempts fail.
     intake_prompt = (
         "CASE METADATA:\n"
         f"caseId: {claim.caseId}\n"
@@ -248,9 +326,31 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
         f"documented damages usd: {claim.damagesUsd}\n\n"
         f"CLAIM DOCUMENTS:\n{docs_text}"
     )
-    intake = _parse_intake(await _ask(AGENTS["intake"], intake_prompt, "intake"), claim)
+    intake: Intake | None = None
+    for attempt in (1, 2):
+        prompt = intake_prompt if attempt == 1 else (
+            f"{intake_prompt}\n\nYour previous response was not valid JSON. "
+            f"Return ONLY the JSON in the requested shape — no prose, no markdown."
+        )
+        try:
+            intake = _parse_intake(await _ask(AGENTS["intake"], prompt, f"intake#{attempt}" if attempt > 1 else "intake"), claim)
+            break
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                await room.post(SYS, 196, "gate",
+                                f"Intake agent failed to return parseable JSON after retry ({type(e).__name__}). "
+                                f"Falling back to case-level metadata.")
+                intake = Intake(
+                    parties=Intake.Parties(insured=claim.insured, otherParty=claim.otherParty),
+                    date="not in evidence",
+                    location="not in evidence",
+                    damagesUsd=claim.damagesUsd,
+                )
+    # Display the agent's extracted figure when present, otherwise fall back to
+    # the case-level damages (the authoritative number for fault math anyway).
+    intake_damages_display = intake.damagesUsd if intake.damagesUsd is not None else claim.damagesUsd
     await room.post(AGENTS["intake"].name, AGENTS["intake"].color, "message",
-                    f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake.damagesUsd)}")
+                    f"{intake.parties.insured} vs {intake.parties.otherParty} | {intake.date} | {intake.location} | damages {_usd(intake_damages_display)}")
 
     # 2) Evidence ledger — three sources, in priority order:
     #    (a) a ledger passed in (real cases: loaded from the graph the ledger lane
@@ -313,6 +413,41 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     math_a = check_adjudicator_math(dec_a) if dec_a else None
     math_b = check_adjudicator_math(dec_b) if dec_b else None
 
+    # 7b') Math-gate retry — same pattern as the Citation Gate. LLMs frequently
+    # produce a fault table whose row weights don't sum to their stated %
+    # (especially Claude Opus on dense evidence). One retry with explicit
+    # delta feedback usually reconciles it. Done in parallel so it costs at
+    # most one extra adjudicator round-trip, not two sequential ones.
+    retry_tasks: list[tuple[str, AgentDef, str]] = []
+    if dec_a and math_a and not math_a.ok:
+        retry_tasks.append(("a", AGENTS["adjudicator"], "adjudicator"))
+    if dec_b and math_b and not math_b.ok:
+        retry_tasks.append(("b", AGENTS["adjudicator_b"], "adjudicator_b"))
+    if retry_tasks:
+        def _retry_prompt(math_result: MathGateResult) -> str:
+            return (
+                f"{adj_prompt}\n\nYour previous response failed the math gate: your "
+                f"fault table weights imply {math_result.computed_pct}% but you stated "
+                f"{math_result.stated_pct}% — a {math_result.delta}pp disagreement "
+                f"(tolerance {CONSENSUS_TOLERANCE_PP}pp). Reconcile them: EITHER adjust the "
+                f"row weights so the implied % matches your stated %, OR change your stated "
+                f"% to match the table. Return the same JSON shape, no prose."
+            )
+        retry_results = await asyncio.gather(*[
+            _ask(agent_def, _retry_prompt(math_a if slot == "a" else math_b), f"{mock_key}#math_retry")
+            for slot, agent_def, mock_key in retry_tasks
+        ], return_exceptions=True)
+        for (slot, _, _), retry_raw in zip(retry_tasks, retry_results):
+            retry_dec = _parse_decision_or_none(retry_raw)
+            if retry_dec is None:
+                continue
+            retry_math = check_adjudicator_math(retry_dec)
+            if retry_math.ok:
+                if slot == "a":
+                    dec_a, math_a = retry_dec, retry_math
+                else:
+                    dec_b, math_b = retry_dec, retry_math
+
     if dec_a:
         await room.post(AGENTS["adjudicator"].name, AGENTS["adjudicator"].color, "decision",
                         f"Other driver {dec_a.otherDriverFaultPct}% at fault (confidence {dec_a.confidence}).\n   Basis: {dec_a.reasoning}")
@@ -332,21 +467,53 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     else:
         await room.post(MATH_GATE, 196, "gate", "Adjudicator B failed to return a parseable decision.")
 
-    # 7c) Consensus
+    # 7c) Consensus — with graceful degradation when both adjudicators failed math.
+    both_math_failed = (
+        dec_a is not None and math_a is not None and not math_a.ok
+        and dec_b is not None and math_b is not None and not math_b.ok
+    )
     consensus = _compute_consensus(dec_a, dec_b, math_a.ok if math_a else False, math_b.ok if math_b else False)
-    if consensus is None:
-        raise RuntimeError("Both adjudicators failed; cannot proceed without a decision.")
-    canonical = consensus.canonical
 
-    if consensus.consensus_type == "agreement":
-        await room.post(CONSENSUS_GATE, 46, "gate",
-                        f"Adjudicators converged — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp ≤ {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.")
-    elif consensus.consensus_type == "disagreement":
+    if consensus is None and both_math_failed:
+        # Both adjudicators parsed but both failed math (even after retry).
+        # Instead of crashing the run, pick the smaller-delta decision as a
+        # best-effort canonical, knock confidence to half, and FORCE human
+        # escalation with an explicit reason. The run completes; the human
+        # adjudicator gets a flagged escalation packet rather than a 500.
+        candidates = [(math_a.delta, dec_a, "A", math_a), (math_b.delta, dec_b, "B", math_b)]
+        candidates.sort(key=lambda x: x[0])
+        best_delta, best_dec, best_slot, best_math = candidates[0]
+        worst_delta = candidates[1][0]
+        canonical = best_dec.model_copy(update={
+            "confidence": best_dec.confidence * 0.5,
+            "reasoning": (
+                f"[BOTH ADJUDICATORS FAILED MATH GATE after retry — using Adjudicator {best_slot} "
+                f"at half confidence] {best_dec.reasoning}"
+            ),
+        })
+        consensus = ConsensusResult(canonical, None, "single", 0)
         await room.post(CONSENSUS_GATE, 196, "gate",
-                        f"DISAGREEMENT — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.")
-    elif consensus.consensus_type == "single":
-        which = "A" if (dec_a and math_a and math_a.ok) else "B"
-        await room.post(CONSENSUS_GATE, 214, "gate", f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.")
+                        f"BOTH adjudicators failed math gate after retry (A delta {math_a.delta}pp, "
+                        f"B delta {math_b.delta}pp). Using Adjudicator {best_slot} (smaller delta "
+                        f"{best_delta}pp) at HALF confidence ({canonical.confidence:.2f}). Forcing human escalation.")
+    elif consensus is None:
+        # Both adjudicators failed to even return a parseable decision (not a math
+        # gate issue — they returned no usable JSON at all). This is the only path
+        # where we genuinely can't proceed; surface a clear error.
+        raise RuntimeError(
+            "Both adjudicators failed to return a parseable decision; cannot proceed."
+        )
+    else:
+        canonical = consensus.canonical
+        if consensus.consensus_type == "agreement":
+            await room.post(CONSENSUS_GATE, 46, "gate",
+                            f"Adjudicators converged — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp ≤ {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.")
+        elif consensus.consensus_type == "disagreement":
+            await room.post(CONSENSUS_GATE, 196, "gate",
+                            f"DISAGREEMENT — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.")
+        elif consensus.consensus_type == "single":
+            which = "A" if (dec_a and math_a and math_a.ok) else "B"
+            await room.post(CONSENSUS_GATE, 214, "gate", f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.")
 
     # 7d) Source-Alignment Verifier
     verifier_tasks = collect_verifier_tasks(advocate_points, opposing_theory, attack_points, rebuttal)
@@ -427,8 +594,24 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     elif final.escalate:
         await room.post(SYS, 196, "decision", f"ESCALATED TO HUMAN ADJUSTER — {'; '.join(reasons)}. Awaiting Approve/Reject.")
 
-    # 8) Demand letter
-    letter = _parse_letter(await _ask(AGENTS["drafter"], f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter.", "drafter"))
+    # 8) Demand letter — with retry + deterministic fallback. The Drafter is
+    # the last LLM call (step 8/8) so a network blip here loses 60+s of work.
+    # Fallback: a minimal template letter that includes the canonical fault%
+    # and recovery$ so Letter Reconciliation passes by construction.
+    drafter_user = f"{context}\n\nDecision: other driver {canonical.otherDriverFaultPct}% at fault; recovery ${recovery_usd}. Write the demand letter."
+    letter: str | None = None
+    for attempt in (1, 2):
+        try:
+            letter = _parse_letter(await _ask(AGENTS["drafter"], drafter_user, f"drafter#{attempt}" if attempt > 1 else "drafter"))
+            if letter and letter.strip():
+                break
+            letter = None
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                await room.post(LETTER_GATE, 214, "gate",
+                                f"Drafter call failed ({type(e).__name__}); using template fallback so the packet is still produced.")
+    if not letter:
+        letter = _fallback_letter(claim, canonical, recovery_usd, ledger)
     await room.post(AGENTS["drafter"].name, AGENTS["drafter"].color, "message", "Drafted the formal subrogation demand letter (full text in output).")
 
     # 8b) Letter reconciliation

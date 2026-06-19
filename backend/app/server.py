@@ -383,6 +383,14 @@ async def api_run(case_id: str):
         finally:
             await queue.put(None)
 
+    # Heartbeat keeps the SSE connection alive through intermediate proxies
+    # (Next.js dev rewrite, nginx, etc.) during long-idle stretches — e.g.
+    # while a single Claude/GPT agent call is in flight and nothing is being
+    # posted to the room. SSE comment lines (": ...\n\n") are ignored by
+    # EventSource on the client but count as traffic upstream. 15 s is well
+    # under typical proxy idle timeouts (30–60 s).
+    HEARTBEAT_INTERVAL = 15.0
+
     async def stream():
         yield _sse("start", {
             "caseId": claim.caseId,
@@ -392,7 +400,11 @@ async def api_run(case_id: str):
         task = asyncio.create_task(drive())
         try:
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
                 if item is None:
                     break
                 event, data = item
