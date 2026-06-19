@@ -263,6 +263,7 @@ function DemoCaseView({
           onRun={onRun}
           canRun
           bandRoomId={run.bandRoomId}
+          activity={run.activity}
         />
         <DecisionPanel
           caseId={data.claim.caseId}
@@ -519,6 +520,7 @@ function DbCaseBody({
         canRun={room.canRun}
         lockedReason={room.lockedReason}
         onRun={onRun}
+        activity={run.activity}
       />
     </div>
   );

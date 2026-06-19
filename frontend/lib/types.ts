@@ -272,13 +272,20 @@ export interface RunReplay {
 // ---- SSE event shape (from /api/run/:id) -----------------------------------
 
 /**
- * The set of posting kinds the backend emits. Mirrors `PostingKind` in
- * backend/schemas/transcript.py and the CHECK constraint on transcript.kind.
+ * The set of posting kinds the backend emits. The first five mirror `PostingKind`
+ * in backend/schemas/transcript.py and the CHECK constraint on transcript.kind.
  *
- * (Prior values like "agent" / "letter" / "verdict" never matched what the
- * server actually sends; the live SSE payload uses these five.)
+ * "status" is a SIXTH, live-only kind: a transient "agent is doing X" signal
+ * (see Room.status). It is never persisted or sent to Band — the UI shows it as
+ * the activity indicator and drops it when the real message arrives.
  */
-export type RoomKind = "message" | "handoff" | "gate" | "decision" | "system";
+export type RoomKind =
+  | "message"
+  | "handoff"
+  | "gate"
+  | "decision"
+  | "system"
+  | "status";
 
 export interface RoomPosting {
   agent: string;

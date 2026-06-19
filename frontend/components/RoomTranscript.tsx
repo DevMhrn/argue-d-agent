@@ -50,12 +50,16 @@ interface RoomTranscriptProps {
   postings: RoomPosting[];
   emptyAction: string;
   tone?: PostingTone;
+  /** Transient "agent is doing X" indicator shown at the foot of the feed while
+   *  we wait for the next message. */
+  activity?: { agent: string; content: string } | null;
 }
 
 export function RoomTranscript({
   postings,
   emptyAction,
   tone = "room",
+  activity = null,
 }: RoomTranscriptProps) {
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -64,11 +68,11 @@ export function RoomTranscript({
       top: feedRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [postings.length]);
+  }, [postings.length, activity?.content]);
 
   return (
     <div ref={feedRef} className="flex-1 overflow-auto p-5">
-      {postings.length === 0 ? (
+      {postings.length === 0 && !activity ? (
         <EmptyRoomState action={emptyAction} />
       ) : (
         <ol className="space-y-3">
@@ -79,9 +83,42 @@ export function RoomTranscript({
               tone={tone}
             />
           ))}
+          {activity ? <ActivityIndicator activity={activity} /> : null}
         </ol>
       )}
     </div>
+  );
+}
+
+function ActivityIndicator({
+  activity,
+}: {
+  activity: { agent: string; content: string };
+}) {
+  const meta = agentMeta(activity.agent);
+  return (
+    <li className="flex items-center gap-2 rounded-pill border border-accent/20 bg-accent/5 px-3 py-2">
+      <span className="flex shrink-0 gap-1">
+        <ActivityDot />
+        <ActivityDot delay="160ms" />
+        <ActivityDot delay="320ms" />
+      </span>
+      <span className={`font-semibold text-[12px] ${meta.color}`}>
+        {activity.agent}
+      </span>
+      <span className="text-[12.5px] text-muted italic">
+        {activity.content}
+      </span>
+    </li>
+  );
+}
+
+function ActivityDot({ delay = "0ms" }: { delay?: string }) {
+  return (
+    <span
+      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+      style={{ animationDelay: delay }}
+    />
   );
 }
 

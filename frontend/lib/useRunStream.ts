@@ -19,6 +19,9 @@ export type RunState = {
   decision: DecisionResult | null;
   bandRoomId: string | null;
   error: string | null;
+  /** Transient "agent is doing X" indicator while we wait for the next real
+   *  message. Cleared the moment that message arrives (or the run ends). */
+  activity: { agent: string; content: string } | null;
 };
 
 type Action =
@@ -72,6 +75,7 @@ const initial: RunState = {
   decision: null,
   bandRoomId: null,
   error: null,
+  activity: null,
 };
 
 const ACTION_REDUCERS: ActionReducers = {
@@ -80,11 +84,27 @@ const ACTION_REDUCERS: ActionReducers = {
     status: "connecting",
     caseId: action.caseId,
   }),
-  post: (state, action) => ({
-    ...state,
-    status: "streaming",
-    postings: [...state.postings, action.posting],
-  }),
+  post: (state, action) => {
+    // "status" postings are transient "agent is doing X" signals — show them as
+    // the live activity indicator; don't add them to the permanent transcript.
+    if (action.posting.kind === "status") {
+      return {
+        ...state,
+        status: "streaming",
+        activity: {
+          agent: action.posting.agent,
+          content: action.posting.content,
+        },
+      };
+    }
+    // A real message arrived → append it and clear the working indicator.
+    return {
+      ...state,
+      status: "streaming",
+      postings: [...state.postings, action.posting],
+      activity: null,
+    };
+  },
   letter_chunk: (state, action) => ({
     ...state,
     letter: state.letter + action.text,
@@ -92,6 +112,7 @@ const ACTION_REDUCERS: ActionReducers = {
   result: (state, action) => ({
     ...state,
     status: "complete",
+    activity: null,
     decision: action.decision,
     bandRoomId: action.decision.bandRoomId ?? null,
     letter: action.decision.letter ?? state.letter,
@@ -99,6 +120,7 @@ const ACTION_REDUCERS: ActionReducers = {
   error: (state, action) => ({
     ...state,
     status: "error",
+    activity: null,
     error: action.message,
   }),
   reset: () => initial,

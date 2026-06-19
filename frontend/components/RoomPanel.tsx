@@ -9,6 +9,7 @@ interface Props {
   onRun: () => void;
   canRun: boolean;
   bandRoomId: string | null;
+  activity?: { agent: string; content: string } | null;
 }
 
 type RoomStatus = Props["status"];
@@ -19,6 +20,7 @@ export function RoomPanel({
   onRun,
   canRun,
   bandRoomId,
+  activity = null,
 }: Props) {
   return (
     <section className="flex h-full flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
@@ -28,7 +30,11 @@ export function RoomPanel({
         canRun={canRun}
         onRun={onRun}
       />
-      <RoomTranscript postings={postings} emptyAction="Run investigation" />
+      <RoomTranscript
+        postings={postings}
+        emptyAction="Run investigation"
+        activity={activity}
+      />
     </section>
   );
 }

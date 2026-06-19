@@ -10,6 +10,7 @@ interface Props {
   canRun: boolean;
   lockedReason: string | null;
   onRun: () => void;
+  activity?: { agent: string; content: string } | null;
 }
 
 type RoomStatus = Props["status"];
@@ -28,12 +29,13 @@ export function ArgumentRoom({
   canRun,
   lockedReason,
   onRun,
+  activity = null,
 }: Props) {
   const isLocked = !canRun;
   const running = status === "streaming" || status === "connecting";
 
   return (
-    <section className="flex h-full min-h-[480px] max-h-[85vh] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    <section className="flex h-full min-h-120 max-h-[85vh] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <ArgumentRoomHeader
         status={status}
         bandRoomId={bandRoomId}
@@ -45,6 +47,7 @@ export function ArgumentRoom({
         postings={postings}
         isLocked={isLocked}
         lockedReason={lockedReason}
+        activity={activity}
       />
     </section>
   );
@@ -96,10 +99,12 @@ function ArgumentRoomBody({
   postings,
   isLocked,
   lockedReason,
+  activity,
 }: {
   postings: RoomPosting[];
   isLocked: boolean;
   lockedReason: string | null;
+  activity: { agent: string; content: string } | null;
 }) {
   if (isLocked && postings.length === 0) {
     return <LockedRoomNotice reason={lockedReason} />;
@@ -110,6 +115,7 @@ function ArgumentRoomBody({
       postings={postings}
       emptyAction="Open the room"
       tone="argument"
+      activity={activity}
     />
   );
 }
