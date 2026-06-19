@@ -183,7 +183,7 @@ function LoadErrorView({ message }: { message: string }) {
         <p className="font-medium text-bad">{message}</p>
         <p className="mt-2 text-muted">
           Open{" "}
-          <Link className="text-accent hover:underline" href="/">
+          <Link className="text-accent hover:underline" href="/cases">
             the cases list
           </Link>{" "}
           to see what&apos;s available.
@@ -418,7 +418,7 @@ function CaseShell({
 function Breadcrumb({ caseId }: { caseId: string }) {
   return (
     <nav className="mb-4 flex items-center gap-2.25 font-mono text-[11.5px] text-muted-2">
-      <Link className="text-muted-2 transition-colors hover:text-text" href="/">
+      <Link className="text-muted-2 transition-colors hover:text-text" href="/cases">
         Cases
       </Link>
       <span className="text-muted-2 opacity-70">›</span>

@@ -11,9 +11,10 @@ const HIDE_AFTER = 80;
 const NAV: { label: string; href: string; match: (p: string) => boolean }[] = [
   {
     label: "Cases",
-    href: "/",
+    href: "/cases",
     match: (p) =>
-      p === "/" || (p.startsWith("/cases/") && !p.startsWith("/cases/new")),
+      p === "/cases" ||
+      (p.startsWith("/cases/") && !p.startsWith("/cases/new")),
   },
   {
     label: "New case",
@@ -38,6 +39,10 @@ export function AppChrome() {
   const [howOpen, setHowOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
 
+  // The marketing landing at `/` owns its own status chrome — skip the app
+  // chrome there so the two don't double-stack.
+  const isLanding = pathname === "/";
+
   // Smart hide-on-scroll: the chrome slides up as soon as you scroll down past
   // its own height, and returns the moment you scroll up. rAF-throttled.
   useEffect(() => {
@@ -58,6 +63,8 @@ export function AppChrome() {
     globalThis.addEventListener("scroll", onScroll, { passive: true });
     return () => globalThis.removeEventListener("scroll", onScroll);
   }, []);
+
+  if (isLanding) return null;
 
   return (
     <>
