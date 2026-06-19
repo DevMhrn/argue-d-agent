@@ -360,6 +360,41 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     math_a = check_adjudicator_math(dec_a) if dec_a else None
     math_b = check_adjudicator_math(dec_b) if dec_b else None
 
+    # 7b') Math-gate retry — same pattern as the Citation Gate. LLMs frequently
+    # produce a fault table whose row weights don't sum to their stated %
+    # (especially Claude Opus on dense evidence). One retry with explicit
+    # delta feedback usually reconciles it. Done in parallel so it costs at
+    # most one extra adjudicator round-trip, not two sequential ones.
+    retry_tasks: list[tuple[str, AgentDef, str]] = []
+    if dec_a and math_a and not math_a.ok:
+        retry_tasks.append(("a", AGENTS["adjudicator"], "adjudicator"))
+    if dec_b and math_b and not math_b.ok:
+        retry_tasks.append(("b", AGENTS["adjudicator_b"], "adjudicator_b"))
+    if retry_tasks:
+        def _retry_prompt(math_result: MathGateResult) -> str:
+            return (
+                f"{adj_prompt}\n\nYour previous response failed the math gate: your "
+                f"fault table weights imply {math_result.computed_pct}% but you stated "
+                f"{math_result.stated_pct}% — a {math_result.delta}pp disagreement "
+                f"(tolerance {CONSENSUS_TOLERANCE_PP}pp). Reconcile them: EITHER adjust the "
+                f"row weights so the implied % matches your stated %, OR change your stated "
+                f"% to match the table. Return the same JSON shape, no prose."
+            )
+        retry_results = await asyncio.gather(*[
+            _ask(agent_def, _retry_prompt(math_a if slot == "a" else math_b), f"{mock_key}#math_retry")
+            for slot, agent_def, mock_key in retry_tasks
+        ], return_exceptions=True)
+        for (slot, _, _), retry_raw in zip(retry_tasks, retry_results):
+            retry_dec = _parse_decision_or_none(retry_raw)
+            if retry_dec is None:
+                continue
+            retry_math = check_adjudicator_math(retry_dec)
+            if retry_math.ok:
+                if slot == "a":
+                    dec_a, math_a = retry_dec, retry_math
+                else:
+                    dec_b, math_b = retry_dec, retry_math
+
     if dec_a:
         await room.post(AGENTS["adjudicator"].name, AGENTS["adjudicator"].color, "decision",
                         f"Other driver {dec_a.otherDriverFaultPct}% at fault (confidence {dec_a.confidence}).\n   Basis: {dec_a.reasoning}")
@@ -379,21 +414,53 @@ async def run_lumen(claim: ClaimInput, statutes: list[Statute], room: Room, ledg
     else:
         await room.post(MATH_GATE, 196, "gate", "Adjudicator B failed to return a parseable decision.")
 
-    # 7c) Consensus
+    # 7c) Consensus — with graceful degradation when both adjudicators failed math.
+    both_math_failed = (
+        dec_a is not None and math_a is not None and not math_a.ok
+        and dec_b is not None and math_b is not None and not math_b.ok
+    )
     consensus = _compute_consensus(dec_a, dec_b, math_a.ok if math_a else False, math_b.ok if math_b else False)
-    if consensus is None:
-        raise RuntimeError("Both adjudicators failed; cannot proceed without a decision.")
-    canonical = consensus.canonical
 
-    if consensus.consensus_type == "agreement":
-        await room.post(CONSENSUS_GATE, 46, "gate",
-                        f"Adjudicators converged — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp ≤ {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.")
-    elif consensus.consensus_type == "disagreement":
+    if consensus is None and both_math_failed:
+        # Both adjudicators parsed but both failed math (even after retry).
+        # Instead of crashing the run, pick the smaller-delta decision as a
+        # best-effort canonical, knock confidence to half, and FORCE human
+        # escalation with an explicit reason. The run completes; the human
+        # adjudicator gets a flagged escalation packet rather than a 500.
+        candidates = [(math_a.delta, dec_a, "A", math_a), (math_b.delta, dec_b, "B", math_b)]
+        candidates.sort(key=lambda x: x[0])
+        best_delta, best_dec, best_slot, best_math = candidates[0]
+        worst_delta = candidates[1][0]
+        canonical = best_dec.model_copy(update={
+            "confidence": best_dec.confidence * 0.5,
+            "reasoning": (
+                f"[BOTH ADJUDICATORS FAILED MATH GATE after retry — using Adjudicator {best_slot} "
+                f"at half confidence] {best_dec.reasoning}"
+            ),
+        })
+        consensus = ConsensusResult(canonical, None, "single", 0)
         await room.post(CONSENSUS_GATE, 196, "gate",
-                        f"DISAGREEMENT — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.")
-    elif consensus.consensus_type == "single":
-        which = "A" if (dec_a and math_a and math_a.ok) else "B"
-        await room.post(CONSENSUS_GATE, 214, "gate", f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.")
+                        f"BOTH adjudicators failed math gate after retry (A delta {math_a.delta}pp, "
+                        f"B delta {math_b.delta}pp). Using Adjudicator {best_slot} (smaller delta "
+                        f"{best_delta}pp) at HALF confidence ({canonical.confidence:.2f}). Forcing human escalation.")
+    elif consensus is None:
+        # Both adjudicators failed to even return a parseable decision (not a math
+        # gate issue — they returned no usable JSON at all). This is the only path
+        # where we genuinely can't proceed; surface a clear error.
+        raise RuntimeError(
+            "Both adjudicators failed to return a parseable decision; cannot proceed."
+        )
+    else:
+        canonical = consensus.canonical
+        if consensus.consensus_type == "agreement":
+            await room.post(CONSENSUS_GATE, 46, "gate",
+                            f"Adjudicators converged — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp ≤ {CONSENSUS_TOLERANCE_PP}pp). Using {canonical.otherDriverFaultPct}%.")
+        elif consensus.consensus_type == "disagreement":
+            await room.post(CONSENSUS_GATE, 196, "gate",
+                            f"DISAGREEMENT — A={dec_a.otherDriverFaultPct}%, B={dec_b.otherDriverFaultPct}% (delta {consensus.consensus_delta}pp > {CONSENSUS_TOLERANCE_PP}pp). Forcing human review.")
+        elif consensus.consensus_type == "single":
+            which = "A" if (dec_a and math_a and math_a.ok) else "B"
+            await room.post(CONSENSUS_GATE, 214, "gate", f"Only Adjudicator {which} passed math gate; using {canonical.otherDriverFaultPct}% with reduced confidence.")
 
     # 7d) Source-Alignment Verifier
     verifier_tasks = collect_verifier_tasks(advocate_points, opposing_theory, attack_points, rebuttal)
