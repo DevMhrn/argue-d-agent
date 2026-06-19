@@ -10,12 +10,14 @@ backend/
 │   ├── server.py                #   FastAPI app + SSE routes (cases, run, decision, ingest)
 │   ├── run_server.py            #   Entry point: python -m backend.app.run_server
 │   ├── run_demo.py              #   CLI demo: python -m backend.app.run_demo
-│   ├── pipeline.py              #   The structured debate + dual-adjudication + verifier
+│   ├── pipeline.py              #   Courtroom hearing + dual-adjudication + verifier
+│   ├── courtroom.py             #   Deterministic issue docket and compact issue packets
+│   ├── orchestration_tools.py   #   Safe read-only ledger/statute lookup tools
 │   ├── agents.py / prompts.py   #   Agent definitions + system prompts
 │   ├── gates.py                 #   Citation, Fact, Math gates (code-enforced)
 │   ├── verifier.py              #   Source-Alignment Verifier helper
-│   ├── room.py                  #   Band-room wrapper (LocalRoom + BandRoom)
-│   ├── providers.py             #   Anthropic / Gemini / OpenAI OpenAI-compatible client + mock switch
+│   ├── room.py                  #   Local/Band room wrapper with persisted posting metadata
+│   ├── providers.py             #   OpenAI + Anthropic client registry + mock switch
 │   ├── mock_responses.py        #   Deterministic offline outputs for the demo
 │   ├── config.py                #   Models, providers, thresholds
 │   ├── types.py                 #   Pipeline-internal Pydantic models (ClaimInput, FinalDecision, ...)
@@ -42,10 +44,14 @@ backend/
 │   ├── queue.py                 #   Async extraction queue (arq + Redis)
 │   └── extractors/              #   Per-format text extractors
 │       ├── base.py              #     Extractor protocol + ExtractedDocument / ExtractedPage
-│       ├── pdf.py               #     pdfplumber (native PDFs only)
+│       ├── pdf.py               #     pdfplumber + OCR fallback
 │       ├── docx.py              #     python-docx
+│       ├── excel.py             #     python-calamine for .xlsx
+│       ├── csv.py               #     stdlib CSV/TSV-style rows
 │       ├── html.py              #     BeautifulSoup
-│       ├── text.py              #     plain text
+│       ├── text.py              #     plain text / Markdown
+│       ├── image.py             #     Claude vision or mock image summary
+│       ├── audio.py             #     Whisper transcription + events or mock
 │       └── registry.py          #     MIME-type -> Extractor dispatch
 │
 ├── ledger/                      # Graph builder (Gowtham's lane, offline-first)
@@ -55,12 +61,14 @@ backend/
     ├── README.md                #   Schema overview and stage handoff contracts
     └── migrations/
         ├── 001_initial.sql      #     Tables, triggers, indexes
-        └── 002_seed_statutes.sql#     Public statute data
+        ├── 002_seed_statutes.sql#     Public statute data
+        ├── 003_transcript_metadata.sql # Structured posting metadata
+        └── 004_decision_outcome.sql    # Persisted pursue/escalate/decline outcome
 ```
 
 ## Lane boundaries
 
-The stage ownership contract lives in [`backend/db/README.md`](./db/README.md). In short: ingestion owns documents/pages, ledger owns nodes/edges, and orchestration owns runs/transcript/decisions. Human approval persistence and flipping `cases.finalized` are still pending.
+The stage ownership contract lives in [`backend/db/README.md`](./db/README.md). In short: ingestion owns documents/pages, ledger owns nodes/edges, and orchestration owns runs/transcript/decisions. Transcript rows carry structured metadata for courtroom phase, issue, gate, and clerk-side lookup replay; decisions persist the final pursue/escalate/decline outcome for refresh-safe replay. Human approval persistence and flipping `cases.finalized` are still pending.
 
 ## Running locally
 
@@ -86,7 +94,7 @@ Use a Supabase pooler `DATABASE_URL` for local ingestion if `db.<project-ref>.su
 
 The full upload path needs the FastAPI server, arq worker, Supabase, Backblaze B2, and Redis. With those running, use the chat intake at `/cases/new` or the smoke probe in `scripts/probe_upload.py`. Set `PROBE_UPLOAD_PATH` to upload a local file instead of the default tiny text fixture.
 
-For PDF-specific testing, use a native text PDF such as the supplied NHTSA South Carolina TR-310 manual. Command-line clients may receive a 403 from that host; if so, save the file through a browser and upload it from the frontend or run `PROBE_UPLOAD_PATH=/path/to/sc_tr310_manual_rev8_2012.pdf python -m scripts.probe_upload`. Native PDFs are handled by `backend/ingestion/extractors/pdf.py`; scanned PDFs require OCR and are out of scope for v1.
+For PDF-specific testing, use a native text PDF such as the supplied NHTSA South Carolina TR-310 manual. Command-line clients may receive a 403 from that host; if so, save the file through a browser and upload it from the frontend or run `PROBE_UPLOAD_PATH=/path/to/sc_tr310_manual_rev8_2012.pdf python -m scripts.probe_upload`. Native PDFs are handled by `backend/ingestion/extractors/pdf.py`; scanned PDFs attempt OCR fallback when `ocrmypdf`, Tesseract, and Ghostscript are installed.
 
 ## Application schemas vs pipeline types
 
@@ -103,4 +111,4 @@ Three constraints shape the layout:
 
 1. **Each lane owns one concern.** Ingestion is one folder. Ledger is one folder. Orchestration stays in `app/`. No file is owned by two people.
 2. **The DB schema is the contract.** `schemas/` mirrors the migrations. Every read or write goes through a typed model, not raw SQL or untyped dicts.
-3. **Mock mode must keep working.** `python -m backend.app.run_demo` runs offline with zero keys and is the canonical orchestration smoke test.
+3. **Mock mode must keep working.** `./run.sh demo` runs offline with zero keys and is the canonical orchestration smoke test.

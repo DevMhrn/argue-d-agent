@@ -33,6 +33,7 @@ import { useCaseUpload } from "@/lib/useCaseUpload";
 interface Props {
   caseUuid: string;
   initialDocuments: DocumentRow[];
+  onDocumentsChanged?: () => void;
 }
 
 const STATUS_TONE: Record<DocumentRow["status"], string> = {
@@ -51,14 +52,21 @@ const STATUS_LABEL: Record<DocumentRow["status"], string> = {
   failed: "Failed",
 };
 
+type PollTimer = ReturnType<typeof globalThis.setInterval>;
+
 function isTerminal(s: DocumentRow["status"]): boolean {
   return s === "extracted" || s === "failed";
 }
 
-export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
+export function DocumentsPanel({
+  caseUuid,
+  initialDocuments,
+  onDocumentsChanged,
+}: Props) {
   const { docs, files, addFiles, rejectedNote, summary } = useDocumentsPanel({
     caseUuid,
     initialDocuments,
+    onDocumentsChanged,
   });
 
   return (
@@ -71,11 +79,22 @@ export function DocumentsPanel({ caseUuid, initialDocuments }: Props) {
   );
 }
 
-function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
+function useDocumentsPanel({
+  caseUuid,
+  initialDocuments,
+  onDocumentsChanged,
+}: Props) {
   const [docs, setDocs] = useState<DocumentRow[]>(initialDocuments);
   const [rejectedNote, setRejectedNote] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const intervalRef = useRef<number | null>(null);
+  const intervalRef = useRef<PollTimer | null>(null);
+  const docsSignatureRef = useRef(documentsSignature(initialDocuments));
+  const onDocumentsChangedRef =
+    useRef<Props["onDocumentsChanged"]>(onDocumentsChanged);
+
+  useEffect(() => {
+    onDocumentsChangedRef.current = onDocumentsChanged;
+  }, [onDocumentsChanged]);
 
   function onCommitted() {
     // After a successful commit, force a quick refresh so the new doc lands
@@ -85,9 +104,11 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
   }
 
   function onRejected(rejected: FileRejection[]) {
-    const list = rejected.map((r) => `${r.file.name} — ${r.message}`).join("; ");
+    const list = rejected
+      .map((r) => `${r.file.name} — ${r.message}`)
+      .join("; ");
     setRejectedNote(`Can't ingest: ${list}`);
-    window.setTimeout(() => setRejectedNote(null), 6000);
+    globalThis.setTimeout(() => setRejectedNote(null), 6000);
   }
 
   const existingCountsByCategory = useMemo(
@@ -106,9 +127,13 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
       try {
         const status = await getCaseStatus(caseUuid);
         if (cancelled) return;
-        setDocs(status.documents);
-        // Drop any local chips whose document is now visible on the server.
-        clearCommitted(new Set(status.documents.map((d) => d.id)));
+        applyServerDocuments(
+          status.documents,
+          setDocs,
+          clearCommitted,
+          docsSignatureRef,
+          onDocumentsChangedRef,
+        );
       } catch {
         // ignore transient poll failures
       }
@@ -125,8 +150,14 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
       return;
     }
     if (intervalRef.current) return; // already polling
-    intervalRef.current = window.setInterval(() => {
-      void refreshDocuments(caseUuid, setDocs, clearCommitted);
+    intervalRef.current = globalThis.setInterval(() => {
+      void refreshDocuments(
+        caseUuid,
+        setDocs,
+        clearCommitted,
+        docsSignatureRef,
+        onDocumentsChangedRef,
+      );
     }, 1500);
     return () => {
       clearPollInterval(intervalRef);
@@ -136,7 +167,7 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
   // Tear down on unmount.
   useEffect(() => {
     return () => {
-      if (intervalRef.current) window.clearInterval(intervalRef.current);
+      if (intervalRef.current) globalThis.clearInterval(intervalRef.current);
     };
   }, []);
 
@@ -153,7 +184,7 @@ function useDocumentsPanel({ caseUuid, initialDocuments }: Props) {
 }
 
 interface IntervalRef {
-  current: number | null;
+  current: PollTimer | null;
 }
 
 function shouldPollDocuments(
@@ -165,7 +196,7 @@ function shouldPollDocuments(
 
 function clearPollInterval(intervalRef: IntervalRef) {
   if (!intervalRef.current) return;
-  window.clearInterval(intervalRef.current);
+  globalThis.clearInterval(intervalRef.current);
   intervalRef.current = null;
 }
 
@@ -173,14 +204,51 @@ async function refreshDocuments(
   caseUuid: string,
   setDocs: (docs: DocumentRow[]) => void,
   clearCommitted: (knownIds: Set<string>) => void,
+  docsSignatureRef: { current: string },
+  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
 ) {
   try {
     const status = await getCaseStatus(caseUuid);
-    setDocs(status.documents);
-    clearCommitted(new Set(status.documents.map((doc) => doc.id)));
+    applyServerDocuments(
+      status.documents,
+      setDocs,
+      clearCommitted,
+      docsSignatureRef,
+      onDocumentsChangedRef,
+    );
   } catch {
     // ignore transient poll failures
   }
+}
+
+function applyServerDocuments(
+  documents: DocumentRow[],
+  setDocs: (docs: DocumentRow[]) => void,
+  clearCommitted: (knownIds: Set<string>) => void,
+  docsSignatureRef: { current: string },
+  onDocumentsChangedRef: { current: Props["onDocumentsChanged"] },
+) {
+  setDocs(documents);
+  clearCommitted(new Set(documents.map((doc) => doc.id)));
+
+  const nextSignature = documentsSignature(documents);
+  if (nextSignature === docsSignatureRef.current) return;
+  docsSignatureRef.current = nextSignature;
+  onDocumentsChangedRef.current?.();
+}
+
+function documentsSignature(documents: DocumentRow[]): string {
+  return documents
+    .map((doc) =>
+      [
+        doc.id,
+        doc.status,
+        doc.page_count ?? "",
+        doc.retry_count,
+        doc.extraction_error ?? "",
+      ].join(":"),
+    )
+    .join("|");
 }
 
 interface DocumentsSummary {

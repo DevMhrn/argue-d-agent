@@ -4,7 +4,7 @@
 >
 > Companion docs (more detail per area): [`architecture.md`](architecture.md) (system internals), [`project-plan.md`](project-plan.md) (the strategy/plan), [`product-context.md`](product-context.md) (the product story), [`ingestion-start-context.md`](ingestion-start-context.md) (ingestion lane deep-dive + earlier session history), [`backend/README.md`](../backend/README.md) (backend layout), [`backend/ledger/README.md`](../backend/ledger/README.md) (ledger lane).
 >
-> Last compiled: 2026-06-18. If you change a decision, append to §16 (Decision Log) with the date and reasoning — don't silently overwrite history.
+> Last compiled: 2026-06-19. If you change a decision, append to §16 (Decision Log) with the date and reasoning — don't silently overwrite history.
 
 ---
 
@@ -209,7 +209,7 @@ We integrated the **real Band SDK** (the #1 judging lever; competitors brag "rea
 - **Original plan:** AI/ML API (frontier) + Featherless (open-source) — chosen partly to win **both partner prizes** ("frontier where it matters, OSS where volume matters").
 - **What changed (2026-06-18):** those APIs became **unavailable to us** ("already claimed"). We swapped to the team's **own keys: Claude (Anthropic) + Gemini (Google) + OpenAI**, all via their **OpenAI-compatible chat endpoints** (one `AsyncOpenAI`-style client, different base_url + key per provider).
 - **Cost:** we **forfeit the two partner prizes** (only matters for those). The **main Band prize is unaffected.**
-- **Upside (turned the loss into a win):** three *different model families* make the cross-family debate + dual-adjudicator consensus **genuinely independent** — a stronger, truthful anti-collusion claim than the old single-provider-per-tier setup.
+- **Upside at that point (turned the loss into a win):** multiple model families made the cross-family debate + dual-adjudicator consensus more independent than the old single-provider-per-tier setup. Current active assignment is Claude + GPT; Gemini remains configurable only if a key is available.
 - **Deliberate non-decision:** we kept the **unified OpenAI-compatible client** (provider-neutral) rather than the native Anthropic SDK. Reason: the file is a multi-provider abstraction where Claude is one of three interchangeable providers — exactly the "leave provider-neutral code alone" case the Claude API reference itself describes. Native SDK would mean three client codepaths for no benefit on a mock-first system.
 - **Demo stays MOCK by default** (most reliable); live is the backup path (needs the 3 keys + `LUMEN_MOCK=0`).
 
@@ -258,7 +258,7 @@ Single Supabase/Postgres schema, **9 tables** (`backend/db/migrations/001_initia
 - **`statutes`** — public legal text the Citation Gate validates statute citations against (e.g. `CA-1431.2`, `CVC-21453`, `CVC-21703`).
 - **`nodes`** — the Evidence Ledger as a typed graph: `Fact`/`Party`/`Vehicle`/`Event`/`Location`/`Statute`/`Damage`/`Document`. Fact nodes carry `verbatim_quote` + `(source_document_id, source_page_number)` — the Fact-Gate anchor. `node_id` is the display id (`F1`, `P1`…), unique per case.
 - **`edges`** — typed relationships: `mentioned_in`, `corroborates`, `contradicts`, `attributed_to`, `governed_by`, `caused`, `involves`, `occurred_at`, `drives`.
-- **`transcript`** — Band-room postings per run (`(run_id, seq)` ordering). **`decisions`** — the `FinalDecision` per run (`fault_table` as jsonb, `secondary_decision` for Adjudicator B).
+- **`transcript`** — room postings per run (`(run_id, seq)` ordering) plus structured courtroom metadata. **`decisions`** — the `FinalDecision` per run (`fault_table` as jsonb, `secondary_decision` for Adjudicator B).
 
 **Conventions:** UUID PKs; CHECK constraints over enums (easier to migrate); cascade deletes parent→child except `nodes.source_document_id` (SET NULL — preserve historical facts). **Intentionally NOT in the schema:** embeddings/pgvector/`document_chunks` (the ledger fits in prompts at our scale; full-text covers keyword lookup), multi-tenant RLS, soft-deletes.
 
@@ -273,20 +273,22 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 2. **Intake** → parties/date/location/damages.
 3. **Evidence** → the **Evidence Ledger**. When `LUMEN_USE_LEDGER=1` (default), this comes from the **ledger lane** (`build_ledger` → typed graph → `graph_to_evidence_ledger` projection); else the inline evidence agent. The room posts "Evidence-ledger graph built — N nodes, M edges → K facts".
 4. **Fact Gate** — verbatim-quote anchoring check.
-5. **Debate (structured, no consensus round):** Advocate opens (blind) → Opposing builds its own theory (blind) → Opposing attacks the Advocate's points → Advocate rebuts/concedes (concession needs a citation). Each step is **Citation-Gated** with one retry.
-6. **Dual Adjudicator** — A (Claude) and B (GPT) decide **in parallel**, blind to each other; each **Math-Gated**.
-7. **Consensus Gate** — agreement (≤10pp) → average; disagreement → escalate; single (one passed math) → use it at 0.8× confidence; none → throw/hard-escalate.
-8. **Source-Alignment Verifier** — audits every cited claim; `contradicted` count feeds escalation.
-9. **Viability / decline** — `pursue = recovery ≥ PURSUE_MIN_USD and fault% ≥ PURSUE_MIN_FAULT_PCT`; sets `outcome` ∈ `pursue`/`escalate`/`decline`.
-10. **Escalation** — recovery ≥ `ESCALATE_USD` ($25k), or low confidence, or near-50/50, or a gate/consensus failure → human Approve/Reject.
-11. **Demand Letter** → **Letter Reconciliation Gate** (letter must contain the % and $).
-12. Posts flow to Band (Option B: only real agents). Server computes the **audit hash** and streams a `result` event (incl. `bandRoomId`).
+5. **Courtroom docket:** deterministic `courtroom.py` creates bounded issues from the locked ledger: primary liability, comparative fault, damages, and legal basis.
+6. **Opening briefs:** Recovery counsel and defense counsel argue independently, still Citation-Gated.
+7. **Issue hearing:** for bounded liability/comparative-fault issues, defense cross-examines and recovery counsel redirects from compact issue packets. `orchestration_tools.py` provides clerk-side, read-only ledger/statute lookup; agents do not get raw shell access or model-native tools yet.
+8. **Dual Adjudicator** — A (Claude) and B (GPT) decide **in parallel**, blind to each other; each **Math-Gated**.
+9. **Consensus Gate** — agreement (≤10pp) → average; disagreement → escalate; single (one passed math) → use it at 0.8× confidence; none → throw/hard-escalate.
+10. **Source-Alignment Verifier** — audits every cited claim; `contradicted` count feeds escalation.
+11. **Viability / decline** — `pursue = recovery ≥ PURSUE_MIN_USD and fault% ≥ PURSUE_MIN_FAULT_PCT`; sets `outcome` ∈ `pursue`/`escalate`/`decline`.
+12. **Demand Letter** → **Letter Reconciliation Gate** (letter must contain the % and $).
+13. **Escalation / disposition** — recovery ≥ `ESCALATE_USD` ($25k), low confidence, near-50/50, or a gate/consensus/letter failure → human Approve/Reject.
+14. Posts are streamed over SSE and, for UUID cases, persisted to `transcript` with metadata: phase, actor key, issue key/title, turn type, citations, gate verdict, and tool summary.
 
 **Edge cases & workarounds (think about ALL of these):**
 - **Adjudicator returns non-JSON / unparseable** → `parseDecisionOrNull` → null → that adjudicator is dropped; consensus falls back to the other; if both null → hard error/escalate.
 - **Adjudicator math gate fails** → that adjudicator excluded from consensus; escalate reason recorded.
 - **Both debaters being agreeable (collusion risk)** → mitigated structurally (red-team framing, separation of powers, no-consensus-round, different families) — see §8.
-- **Citation gate can't be satisfied in 2 tries** → post the points with an "unresolved gate violations" warning and proceed (demo must not deadlock); in production this would escalate.
+- **Citation gate can't be satisfied in 2 tries** → post the points with an "unresolved gate violations" warning, continue the packet, and force human review in the final disposition.
 - **Verifier unavailable / unparseable** → warn in room, skip alignment (never blocks the run).
 - **Band send fails** → swallowed (with `LUMEN_BAND_DEBUG=1` it prints) so a transport hiccup never breaks the local run/UI.
 - **Mock pacing** → `LUMEN_MOCK_DELAY_MS` (server sets ~650ms so the live room is watchable; CLI stays instant).
@@ -316,6 +318,7 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 | Drop AI/ML API + Featherless → Claude/Gemini/OpenAI | ✅ YES (forced) | APIs unavailable; turned into the cross-family-independence win. |
 | Drop Gemini too (no key) → repoint its 3 agents to Claude/GPT | ✅ YES (forced, 2026-06-18) | No Gemini key available. Evidence + Adjudicator B → OpenAI; Verifier → Claude. Adversarial pairs stay cross-family; pitch is now "two independent families." Gemini still a supported provider — reassign once a key exists. |
 | 3-lane architecture; DB schema as contract | ✅ YES | Clean ownership (Aman/Gowtham/Sudharsan); parallel work. |
+| Bounded courtroom protocol over free-form A2A loop | ✅ YES (2026-06-19) | More courtroom-like back-and-forth without unbounded token spend; metadata gives future A2A/UI replay hooks. |
 
 ---
 
@@ -327,21 +330,23 @@ This is the current, intended pipeline (`backend/app/pipeline.py:run_lumen`; the
 - **Provider model IDs are defaults:** values in `backend/app/config.py` are configuration defaults. Confirm provider catalog IDs before live runs.
 - **Scale gap:** ingestion targets 50+ docs/case; the orchestration was demoed on compact sample evidence. At scale the Evidence Aggregator likely needs a retrieval step (full-text first, embeddings only if needed).
 - **Ledger build handoff — NOW WIRED:** previously a real case ingested and then *stalled* (nothing read `document_pages`, built the graph, or flipped `ledger_complete`), so the Argument Room never opened. Fixed: when ingestion atomically flips `ingestion_complete`, the winning worker enqueues an arq job `run_ledger_build` (`backend/ledger/jobs.py`); the worker runs `build_and_persist_ledger` (`backend/ledger/service.py`) which reads case+pages+statutes via the ingestion repository, builds the graph (mock fixture with no keys / configured Evidence Aggregator live), writes `nodes`/`edges` via asyncpg, and atomically flips `ledger_complete=true`. Idempotent (replaces any prior graph) and race-safe (only one worker wins each flip). Enqueue is by job-name only, so the ingestion lane never imports ledger code — the worker is the composition root that registers both jobs. **Edge cases handled:** mock graphs are fixtures not anchored to the uploaded docs, so the strict Fact-anchor check is skipped under `is_mock()` (keeps the full upload→ingest→ledger→room flow demoable with zero keys); a Fact's `source_document` is matched to a document UUID by `startswith` (the extraction agent may append "(page 1 · kind)"); zero-document cases still write a (mock) graph rather than hanging.
-- **Real-case orchestration handoff — NOW WIRED.** `GET /api/run/{case_id}` branches on the id shape: demo ids (`clean`/`loser`) build their ledger from the bundled claim as before; real UUIDs now run the debate **over the already-persisted graph**. `backend/ledger/service.py::load_run_inputs(case_id)` reconstructs the `ClaimInput` from `documents`/`document_pages`, loads the jurisdiction's statutes, and projects the stored Fact `nodes` into the `EvidenceLedger` (resolving `source_document_id`→filename). `run_lumen(claim, statutes, room, ledger=...)` gained an optional `ledger` arg - when passed it **skips the rebuild** and argues over the loaded facts. The server requires `ledger_complete=true` (409 otherwise) and refuses an empty ledger (409). On the real UUID path, orchestration inserts a `runs` row, persists every `room.post()` to `transcript`, inserts `decisions`, marks the run `completed`/`escalated`/`failed`, returns `runId`, and exposes replay/history through `/api/cases/{case_id}/runs` plus `/api/runs/{run_id}/transcript`. **Not yet done:** human approval persistence, `cases.finalized`, and reliable `cases.last_run_at` behavior.
+- **Real-case orchestration handoff — NOW WIRED.** `GET /api/run/{case_id}` branches on the id shape: demo ids (`clean`/`loser`) build their ledger from the bundled claim as before; real UUIDs now run the courtroom hearing **over the already-persisted graph**. `backend/ledger/service.py::load_run_inputs(case_id)` reconstructs the `ClaimInput` from `documents`/`document_pages`, loads the jurisdiction's statutes, and projects the stored Fact `nodes` into the `EvidenceLedger` (resolving `source_document_id`→filename). `run_lumen(claim, statutes, room, ledger=...)` skips the rebuild when a ledger is passed. The server requires `ledger_complete=true` (409 otherwise) and refuses an empty ledger (409). On the real UUID path, orchestration inserts a `runs` row, persists every `room.post()` plus metadata to `transcript`, inserts `decisions`, marks the run `completed`/`escalated`/`failed`, rolls up outcome/last-run metadata to `cases`, returns `runId`, and exposes replay/history through `/api/cases/{case_id}/runs` plus `/api/runs/{run_id}/transcript`. **Not yet done:** human approval persistence and `cases.finalized`.
 
 ---
 
 ## 18. Current status (what's done vs. pending)
 
-**Done + verified (mock):** Python backend; 6-gate harness; 8-agent debate; dual-family adjudication; loser/decline case; Next.js recovery-operations console; legacy TypeScript demo retained for offline `pnpm demo`; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` - write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case debate (`GET /api/run/{uuid}` runs the 8-agent debate over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=...)`) and persists run metadata/transcript/decision rows for replay;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
+**Done + verified (mock/offline):** Python backend; 6-gate harness; bounded courtroom hearing; dual-family adjudication; loser/decline case; Next.js recovery-operations console with courtroom metadata display; legacy TypeScript demo retained only as a reference path; ledger lane with offline graph builder and Fact-anchor validation; **real ledger-build integration (ingestion→ledger handoff): arq `run_ledger_build` job + asyncpg `LedgerWriteRepository` that persists `nodes`/`edges` and flips `ledger_complete` - write-path transaction logic verified offline with a stub connection (node-UUID capture, edge resolution, idempotent replace, race-safe flip);** **real-case hearing (`GET /api/run/{uuid}` runs over the persisted ledger graph via `load_run_inputs` + `run_lumen(ledger=...)`) and persists run metadata/transcript/decision rows for replay;** ingestion lane with upload signing, B2 storage seam, async extraction worker, and per-format extractors; DB schema mirrored by Pydantic row models.
 
-**Pending / env-gated:** live model run of the full real flow (`ingest→ledger→debate`) against target provider accounts; human approval/finalization persistence (`cases.finalized`, `cases.last_run_at`); deploy live; record demo assets; confirm provider model IDs in live consoles.
+**Done + verified (local browser smoke, 2026-06-19):** case `SMOKE-039741` uploaded PDF + TXT evidence, extracted 2/2 documents, built a 31-node / 33-edge ledger, reached a terminal escalated room decision, and replayed after refresh with 39 transcript items plus the decision panel.
+
+**Pending / env-gated:** provider-live run with `LUMEN_MOCK=0` explicitly confirmed against target provider accounts; human approval/finalization persistence (`cases.finalized`); deploy live; record final demo assets; confirm provider model IDs in live consoles.
 
 ---
 
 ## 19. Future scope (deferred, post-hackathon or v2)
 
-- **Image & audio ingestion** — photos via a vision model (Gemini/Claude), audio via Whisper (OpenAI). Phase 2.
+- **Image/audio/OCR hardening** — credential checks, cost controls, dependency probes, and broader fixtures for model-backed extraction.
 - **Cross-case memory** — "find similar past cases" (the one genuine embeddings use case; deferred).
 - **Retrieval in the Evidence Aggregator** at 50+ doc scale (full-text first, embeddings if needed).
 - **More claim types / jurisdictions** (more statutes, multi-state comparative-negligence).

@@ -25,6 +25,8 @@ from .pipeline import run_lumen
 from .run_repository import RunRepository
 from .types import ClaimInput, Statute
 from backend.ingestion.routes import router as ingestion_router
+from backend.ingestion.repository import IngestionRepository
+from backend.schemas import CaseStatusUpdate
 
 # Pace the mock so the live web room is watchable.
 os.environ.setdefault("LUMEN_MOCK_DELAY_MS", "650")
@@ -282,7 +284,15 @@ async def api_run(case_id: str):
     loop = asyncio.get_running_loop()
 
     def on_post(p: Posting) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, ("posting", p.to_dict()))
+        item = ("posting", p.to_dict())
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            queue.put_nowait(item)
+        else:
+            loop.call_soon_threadsafe(queue.put_nowait, item)
 
     # The persistence sink — only set on the UUID path. Writes one transcript
     # row per posting BEFORE the SSE callback fires (see Room.post()).
@@ -303,6 +313,7 @@ async def api_run(case_id: str):
                     color=p.color,
                     kind=p.kind,
                     content=p.content,
+                    metadata=p.metadata,
                 )
             )
         persist = _persist
@@ -411,9 +422,21 @@ async def api_run(case_id: str):
                 yield _sse(event, data)
         finally:
             if not task.done():
-                task.cancel()
+                if run_repo is not None and run_id is not None:
+                    task.add_done_callback(_consume_task_result)
+                else:
+                    task.cancel()
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform"})
+
+
+def _consume_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
 
 
 async def _persist_decision(
@@ -447,6 +470,9 @@ async def _persist_decision(
             recovery_usd=_D(str(d.recoveryUsd)),
             escalate=d.escalate,
             escalate_reasons=list(d.escalateReasons or []),
+            outcome=d.outcome,
+            pursue=d.pursue,
+            decline_reason=d.declineReason,
             near_fifty_fifty=d.nearFiftyFifty,
             consensus_type=d.consensus,
             consensus_delta=_D(str(d.consensusDelta)),
@@ -457,6 +483,28 @@ async def _persist_decision(
             audit_hash=audit_hash,
         )
     )
+    case_repo = IngestionRepository()
+    case = await case_repo.get_case(case_uuid)
+    if case is not None:
+        metadata = dict(case.metadata or {})
+        metadata.update(
+            {
+                "outcome": d.outcome,
+                "pursue": d.pursue,
+                "last_run_id": str(run_id),
+            }
+        )
+        if d.declineReason:
+            metadata["decline_reason"] = d.declineReason
+        else:
+            metadata.pop("decline_reason", None)
+        await case_repo.update_case_status(
+            case_uuid,
+            CaseStatusUpdate(
+                last_run_at=datetime.now(timezone.utc),
+                metadata=metadata,
+            ),
+        )
 
 
 @app.get("/api/cases/{case_id}/runs")
@@ -483,6 +531,7 @@ async def api_case_runs(case_id: str):
                 "recovery_usd": float(dec.recovery_usd),
                 "confidence": float(dec.confidence),
                 "escalate": dec.escalate,
+                "outcome": dec.outcome,
                 "consensus_type": dec.consensus_type,
                 "audit_hash": dec.audit_hash,
             },
@@ -517,6 +566,7 @@ async def api_run_transcript(run_id: str):
                 "color": p.color,
                 "kind": p.kind,
                 "content": p.content,
+                "metadata": p.metadata,
                 "posted_at": p.posted_at.isoformat(),
             }
             for p in postings

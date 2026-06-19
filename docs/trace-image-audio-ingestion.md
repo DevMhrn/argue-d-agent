@@ -251,7 +251,7 @@ and relative paths client-side:
 
 ```typescript
 function apiUrl(path: string): string {
-  if (typeof window !== "undefined") return path;
+  if (typeof globalThis.window !== "undefined") return path;
   return `${process.env.LUMEN_API_BASE_URL ?? "http://127.0.0.1:8000"}${path}`;
 }
 ```
@@ -1527,7 +1527,7 @@ Quick orientation if you're inheriting:
 1. Read `docs/CONTEXT.md` for the project's whole journey (393 lines)
 2. Read `docs/ingestion-flow.md` for the data-flow diagrams (~450 lines, Mermaid)
 3. Read `docs/extractor-deep-dive.md` for per-format byte-by-byte (~700 lines, ASCII)
-4. Read this file (`docs/session-trace.md`) for the why
+4. Read this file (`docs/trace-image-audio-ingestion.md`) for the why
 5. Run `./run.sh dev`, open `http://localhost:3000`, click around
 
 **To smoke-test the system right now**:

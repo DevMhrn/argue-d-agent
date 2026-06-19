@@ -7,6 +7,8 @@ interface Props {
   status: "idle" | "connecting" | "streaming" | "complete" | "error";
   postings: RoomPosting[];
   bandRoomId: string | null;
+  activeRunId: string | null;
+  lastSeq: number | null;
   canRun: boolean;
   lockedReason: string | null;
   onRun: () => void;
@@ -25,6 +27,8 @@ export function ArgumentRoom({
   status,
   postings,
   bandRoomId,
+  activeRunId,
+  lastSeq,
   canRun,
   lockedReason,
   onRun,
@@ -33,10 +37,12 @@ export function ArgumentRoom({
   const running = status === "streaming" || status === "connecting";
 
   return (
-    <section className="flex h-full min-h-[480px] max-h-[85vh] flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    <section className="flex h-full max-h-[85vh] min-h-120 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <ArgumentRoomHeader
         status={status}
         bandRoomId={bandRoomId}
+        activeRunId={activeRunId}
+        lastSeq={lastSeq}
         isLocked={isLocked}
         running={running}
         onRun={onRun}
@@ -53,12 +59,16 @@ export function ArgumentRoom({
 function ArgumentRoomHeader({
   status,
   bandRoomId,
+  activeRunId,
+  lastSeq,
   isLocked,
   running,
   onRun,
 }: {
   status: RoomStatus;
   bandRoomId: string | null;
+  activeRunId: string | null;
+  lastSeq: number | null;
   isLocked: boolean;
   running: boolean;
   onRun: () => void;
@@ -78,6 +88,7 @@ function ArgumentRoomHeader({
         </p>
       </div>
       <div className="flex items-center gap-2">
+        <RunId activeRunId={activeRunId} lastSeq={lastSeq} />
         <BandId bandRoomId={bandRoomId} />
         <button
           type="button"
@@ -162,6 +173,23 @@ function BandId({ bandRoomId }: { bandRoomId: string | null }) {
   return (
     <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-0.5 font-mono text-[11px] text-accent">
       band: {bandRoomId.slice(0, 8)}…
+    </span>
+  );
+}
+
+function RunId({
+  activeRunId,
+  lastSeq,
+}: {
+  activeRunId: string | null;
+  lastSeq: number | null;
+}) {
+  if (!activeRunId) return null;
+
+  return (
+    <span className="rounded-full border border-border-soft bg-panel-2 px-2.5 py-0.5 font-mono text-[11px] text-muted">
+      run: {activeRunId.slice(0, 8)}
+      {lastSeq ? ` #${lastSeq}` : ""}
     </span>
   );
 }

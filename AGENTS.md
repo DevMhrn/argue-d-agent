@@ -25,7 +25,7 @@ The legacy TypeScript demo (`src/`, `server/`) follows the original conventions:
 
 ## Testing Guidelines
 
-No dedicated test framework is currently present. Before reporting current-flow changes as complete, run `./run.sh typecheck`, `./run.sh demo`, and relevant frontend checks from `frontend/` such as `pnpm exec tsc --noEmit` and `pnpm build`. Only run root `pnpm typecheck` or `pnpm demo` when the legacy TypeScript demo is in scope. When adding tests, start with focused tests for pure modules, especially schema parsing and gate behavior. Use behavior-focused names, for example `citationGate rejects unknown ids`.
+Use focused `unittest` modules for active Python backend behavior. Before reporting current-flow changes as complete, run `./run.sh typecheck`, `./run.sh demo`, focused backend tests through the repo venv when present, and the active frontend checks in `frontend/README.md`. For active React changes, also follow `frontend/AGENTS.md`. Only run root `pnpm typecheck` or `pnpm demo` when the legacy TypeScript demo is in scope. When adding tests, start with focused tests for pure modules, especially schema parsing and gate behavior. Use behavior-focused names, for example `citationGate rejects unknown ids`.
 
 ## Commit & Pull Request Guidelines
 
@@ -48,7 +48,7 @@ Before any `git commit` or `git push`, run `pnpx fallow audit --format json --qu
 
 Audit defaults to `gate=new-only`: only findings introduced by the current changeset affect the verdict. Inherited findings on touched files are reported under `attribution` and annotated with `introduced: false`, but do not block the commit. Set `[audit] gate = "all"` in `fallow.toml` to gate every finding in changed files.
 
-The local `fallow.toml` ignores legacy demo paths and root-only legacy dependencies. Run `pnpx fallow` before frontend-structure handoff, `pnpx react-compiler-marker` before active React handoff, and the audit command before commits.
+The local `fallow.toml` ignores legacy demo paths and root-only legacy dependencies. Run `pnpx fallow` before frontend-structure handoff, the active React checks in `frontend/AGENTS.md` before active React handoff, and the audit command before commits.
 
 For non-skill agents, treat the task map below as the local onboarding source: run the listed `pnpx fallow` command before destructive edits, before commits, and before pull request handoff.
 

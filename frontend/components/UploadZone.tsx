@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { LIMITS } from "@/lib/fileSupport";
+import { LIMITS, SUPPORTED_FILE_ACCEPT } from "@/lib/fileSupport";
 
 interface Props {
   disabled?: boolean;
@@ -59,19 +59,19 @@ export function UploadZone({ disabled, accept, onFiles }: Props) {
         Drop documents here, or click to pick
       </div>
       <div className="text-[12px] text-muted">
-        Documents (PDF · DOCX · Excel · CSV · HTML · MD · TXT) up to {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
+        Documents (PDF · DOCX · Excel · CSV · HTML · MD · TXT) up to{" "}
+        {LIMITS.document.maxMb} MB · max {LIMITS.document.maxFiles}/case
         <br />
-        Images up to {LIMITS.image.maxMb} MB · max {LIMITS.image.maxFiles}/case &nbsp;·&nbsp; Audio up to {LIMITS.audio.maxMb} MB · max {LIMITS.audio.maxFiles}/case
+        Images up to {LIMITS.image.maxMb} MB · max {LIMITS.image.maxFiles}/case
+        &nbsp;·&nbsp; Audio up to {LIMITS.audio.maxMb} MB · max{" "}
+        {LIMITS.audio.maxFiles}/case
       </div>
       <input
         ref={inputRef}
         type="file"
         multiple
         hidden
-        accept={
-          accept ??
-          ".pdf,.docx,.xlsx,.csv,.tsv,.html,.htm,.txt,.md,.mp3,.m4a,.mp4,.wav,.webm,.jpg,.jpeg,.png,.webp,.gif,application/pdf,text/csv"
-        }
+        accept={accept ?? SUPPORTED_FILE_ACCEPT}
         onChange={(e) => handle(e.target.files)}
       />
     </div>

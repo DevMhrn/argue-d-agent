@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { SUPPORTED_FILE_ACCEPT } from "@/lib/fileSupport";
 
 interface Props {
   placeholder?: string;
@@ -127,7 +128,7 @@ function ComposerFrame({
   children: ReactNode;
 }) {
   return (
-    <div
+    <address
       onDragOver={(e) => {
         e.preventDefault();
         onDragOverChange(true);
@@ -139,7 +140,7 @@ function ComposerFrame({
       }`}
     >
       {children}
-    </div>
+    </address>
   );
 }
 
@@ -176,7 +177,7 @@ function FileInput({
       type="file"
       multiple
       hidden
-      accept=".pdf,.docx,.html,.htm,.txt,.md,application/pdf"
+      accept={SUPPORTED_FILE_ACCEPT}
       onChange={onChange}
     />
   );

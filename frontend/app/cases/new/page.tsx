@@ -9,14 +9,14 @@ import { useRouter } from "next/navigation";
  *      User can fill the form OR just type the case context naturally — the
  *      first text message becomes the title/summary, defaults fill the rest.
  *   2. On submit, we POST /api/ingest/case → Lumen confirms case_id.
- *   3. User drops files anywhere in the conversation; each file becomes an
+ *   3. User attaches files in the composer; each file becomes an
  *      attachment in a user message + a Lumen response that tracks per-file
  *      progress (sha256 → sign → PUT to B2 → commit → extracted).
  *   4. Polling /api/ingest/status updates extraction status in place.
  *   5. When every file shows "extracted", Lumen offers a "Finalize & open case"
  *      action that hits /api/ingest/finalize and navigates to /cases/{id}.
  */
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChatComposer } from "@/components/ChatComposer";
 import { type ChatMessage, ChatMessageBubble } from "@/components/ChatMessage";
 import { type LocalFile, mergeServerStatus } from "@/components/FileRow";
@@ -30,8 +30,7 @@ import {
   uploadToStorage,
 } from "@/lib/api";
 import {
-  classify,
-  type FileCategory,
+  countLocalFilesByCategory,
   type FileRejection,
   mimeOf,
   partitionSupportedFiles,
@@ -40,15 +39,13 @@ import {
   uid,
 } from "@/lib/fileSupport";
 import { sha256Hex } from "@/lib/sha256";
-import type { CaseCreatePayload, CaseRow } from "@/lib/types";
+import type { CaseCreatePayload, CaseRow, DocumentRow } from "@/lib/types";
 
 /* -------------------------------------------------------------- helpers */
 
 /**
- * MIME types our extractors actually handle today. This must mirror
- * backend/ingestion/extractors/registry.py — keep them in sync by hand.
- * Images (PNG/JPG) and audio are Phase 2 (vision via Gemini/Claude + Whisper),
- * see docs/ingestion-start-context.md §17 / §22.
+ * Supported file label comes from frontend/lib/fileSupport.ts, which mirrors
+ * backend/ingestion/limits.py and backend/ingestion/extractors/registry.py.
  */
 const SUPPORTED_LABEL = SUPPORTED_FILES_LABEL;
 
@@ -56,6 +53,7 @@ const SUPPORTED_LABEL = SUPPORTED_FILES_LABEL;
 
 type Phase = "intake" | "uploading" | "ready" | "finalizing";
 type CaseForm = typeof INITIAL_CASE_FORM;
+type PollTimer = ReturnType<typeof globalThis.setInterval>;
 interface UploadState {
   allExtracted: boolean;
   anyFailed: boolean;
@@ -89,7 +87,7 @@ export default function NewCasePage() {
 
   // Refs so we can scroll-to-bottom and stop polling on unmount.
   const feedRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<number | null>(null);
+  const pollRef = useRef<PollTimer | null>(null);
 
   // ---- conversation helpers --------------------------------------------
   function push(msg: Omit<ChatMessage, "id">) {
@@ -107,18 +105,18 @@ export default function NewCasePage() {
     ]);
   }, []);
 
-  // Auto-scroll on every message/file update.
+  // Auto-scroll whenever the chat re-renders after message or file changes.
   useEffect(() => {
     feedRef.current?.scrollTo({
       top: feedRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, files]);
+  });
 
   // Stop polling on unmount.
   useEffect(() => {
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      if (pollRef.current) globalThis.clearInterval(pollRef.current);
     };
   }, []);
 
@@ -180,23 +178,16 @@ export default function NewCasePage() {
   }
 
   function startPolling(caseUuid: string) {
-    if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(async () => {
+    clearPolling(pollRef);
+    pollRef.current = globalThis.setInterval(async () => {
       try {
         const status = await getCaseStatus(caseUuid);
         setFiles((prev) =>
-          prev.map((row) => {
-            const server = status.documents.find(
-              (d) => d.id === row.documentId,
-            );
-            if (!server) return row;
-            return {
-              ...row,
-              stage: mergeServerStatus(row.stage, server.status),
-              error: server.extraction_error ?? row.error,
-            };
-          }),
+          prev.map((row) => mergePolledFile(row, status.documents)),
         );
+        if (shouldStopPolling(status.documents)) {
+          clearPolling(pollRef);
+        }
       } catch {
         // ignore transient poll failures
       }
@@ -216,7 +207,7 @@ export default function NewCasePage() {
     // the user gets instant feedback instead of a 400 error chip. Drag-drop
     // bypasses the <input accept="..."> filter, so this is the only place we
     // can catch oversized/over-count uploads client-side.
-    const pendingCountsByCategory = countByCategory(files);
+    const pendingCountsByCategory = countLocalFilesByCategory(files);
     const { accepted, rejected } = partitionSupportedFiles(picked, {
       pendingCountsByCategory,
     });
@@ -246,9 +237,6 @@ export default function NewCasePage() {
   // ---- step 3: finalize when all files are extracted -------------------
   const upload = uploadState(files);
 
-  // When we transition into "all extracted", drop a Lumen message offering to
-  // finalize. Tracked via a ref so we only post the prompt once.
-  const promptedFinalizeRef = useRef(false);
   async function finalizeCurrentCase() {
     if (!caseRow) return;
     setPhase("finalizing");
@@ -263,21 +251,6 @@ export default function NewCasePage() {
       setPhase("ready");
     }
   }
-
-  useEffect(() => {
-    if (
-      !shouldPromptFinalize(
-        upload.allExtracted,
-        promptedFinalizeRef.current,
-        caseRow,
-      )
-    )
-      return;
-    promptedFinalizeRef.current = true;
-    clearPolling(pollRef);
-    push(finalizePromptMessage(files.length, finalizeCurrentCase));
-    setPhase("ready");
-  }, [upload.allExtracted, caseRow, files.length]);
 
   // ---- free-text user messages -----------------------------------------
   function handleSend(text: string) {
@@ -317,19 +290,30 @@ export default function NewCasePage() {
     />
   );
 
-  // Inject the inline form into the first Lumen message bubble.
-  const renderedMessages = messages.map((m, i) =>
-    i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m,
+  // Inject the inline form into the first Lumen message bubble and keep any
+  // attachment chips synced to the live upload state.
+  const renderedMessages = attachLiveFiles(
+    messages.map((m, i) =>
+      i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m,
+    ),
+    files,
   );
+  const showFinalizePrompt =
+    upload.allExtracted && Boolean(caseRow) && phase !== "finalizing";
+  const displayMessages = showFinalizePrompt
+    ? renderedMessages.concat({
+        id: "finalize-prompt",
+        ...finalizePromptMessage(files.length, finalizeCurrentCase),
+      })
+    : renderedMessages;
 
   /* ----- render -------------------------------------------------------- */
   return (
     <div className="flex flex-1 flex-col">
       <NewCaseFeed
         feedRef={feedRef}
-        messages={renderedMessages}
+        messages={displayMessages}
         anyFailed={upload.anyFailed}
-        onAttach={handleAttach}
       />
       <NewCaseComposer
         caseRow={caseRow}
@@ -367,6 +351,24 @@ function stageAfterCommit(status: string): LocalFile["stage"] {
   return status === "extracting" ? "extracting" : "uploaded";
 }
 
+function mergePolledFile(row: LocalFile, documents: DocumentRow[]): LocalFile {
+  const server = documents.find((doc) => doc.id === row.documentId);
+  if (!server) return row;
+  return {
+    ...row,
+    stage: mergeServerStatus(row.stage, server.status),
+    error: server.extraction_error ?? row.error,
+  };
+}
+
+function isTerminalDocument(document: DocumentRow): boolean {
+  return document.status === "extracted" || document.status === "failed";
+}
+
+function shouldStopPolling(documents: DocumentRow[]): boolean {
+  return documents.length > 0 && documents.every(isTerminalDocument);
+}
+
 const IN_FLIGHT_STAGES = new Set<LocalFile["stage"]>([
   "queued",
   "hashing",
@@ -385,20 +387,13 @@ function NewCaseFeed({
   feedRef,
   messages,
   anyFailed,
-  onAttach,
 }: {
   feedRef: FeedRef;
   messages: ChatMessage[];
   anyFailed: boolean;
-  onAttach: (files: File[]) => void;
 }) {
   return (
-    <div
-      ref={feedRef}
-      className="flex-1 overflow-auto"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => handleFeedDrop(e, onAttach)}
-    >
+    <div ref={feedRef} className="flex-1 overflow-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-8">
         {messages.map((message) => (
           <ChatMessageBubble key={message.id} msg={message} />
@@ -407,21 +402,6 @@ function NewCaseFeed({
       </div>
     </div>
   );
-}
-
-function handleFeedDrop(
-  e: DragEvent<HTMLDivElement>,
-  onAttach: (files: File[]) => void,
-) {
-  e.preventDefault();
-  attachDroppedFiles(e.dataTransfer.files, onAttach);
-}
-
-function attachDroppedFiles(
-  files: FileList,
-  onAttach: (files: File[]) => void,
-) {
-  if (files.length > 0) onAttach(Array.from(files));
 }
 
 function FailedUploadNotice({ show }: { show: boolean }) {
@@ -542,7 +522,7 @@ type MessageSetter = (
 ) => void;
 type MessagePusher = (msg: Omit<ChatMessage, "id">) => void;
 interface PollRef {
-  current: number | null;
+  current: PollTimer | null;
 }
 
 function replaceLastMessage(
@@ -552,7 +532,10 @@ function replaceLastMessage(
   setMessages((prev) => prev.slice(0, -1).concat({ id: uid(), ...msg }));
 }
 
-function notifyUnsupportedFiles(rejected: FileRejection[], push: MessagePusher) {
+function notifyUnsupportedFiles(
+  rejected: FileRejection[],
+  push: MessagePusher,
+) {
   if (rejected.length > 0) {
     push({ role: "lumen", text: unsupportedFilesMessage(rejected) });
   }
@@ -571,19 +554,6 @@ function unsupportedNoun(rejected: FileRejection[]): string {
 
 function rejectedFilesList(rejected: FileRejection[]): string {
   return rejected.map((r) => `• ${r.file.name} — ${r.message}`).join("\n");
-}
-
-function countByCategory(
-  files: LocalFile[],
-): Partial<Record<FileCategory, number>> {
-  const counts: Partial<Record<FileCategory, number>> = {};
-  for (const f of files) {
-    if (f.stage === "failed") continue;
-    const cat = classify(mimeOf(f.file));
-    if (!cat) continue;
-    counts[cat] = (counts[cat] ?? 0) + 1;
-  }
-  return counts;
 }
 
 function uploadQueuedMessage(count: number): string {
@@ -610,18 +580,27 @@ function createUploadWorkers(
   });
 }
 
-function shouldPromptFinalize(
-  allExtracted: boolean,
-  alreadyPrompted: boolean,
-  caseRow: CaseRow | null,
-) {
-  return allExtracted && !alreadyPrompted && Boolean(caseRow);
-}
-
 function clearPolling(pollRef: PollRef) {
   if (!pollRef.current) return;
-  window.clearInterval(pollRef.current);
+  globalThis.clearInterval(pollRef.current);
   pollRef.current = null;
+}
+
+function attachLiveFiles(
+  messages: ChatMessage[],
+  files: LocalFile[],
+): ChatMessage[] {
+  const filesByUid = new Map(files.map((file) => [file.uid, file]));
+  return messages.map((message) =>
+    message.attachments
+      ? {
+          ...message,
+          attachments: message.attachments.map(
+            (file) => filesByUid.get(file.uid) ?? file,
+          ),
+        }
+      : message,
+  );
 }
 
 function finalizePromptMessage(
@@ -653,16 +632,18 @@ function CaseMetadataForm({
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Case ID">
+        <Field id="case-id" label="Case ID">
           <input
+            id="case-id"
             value={form.case_id}
             onChange={(e) => onChange({ ...form, case_id: e.target.value })}
             placeholder={`CLM-${new Date().getFullYear()}-`}
             className="input"
           />
         </Field>
-        <Field label="Jurisdiction">
+        <Field id="case-jurisdiction" label="Jurisdiction">
           <input
+            id="case-jurisdiction"
             value={form.jurisdiction}
             onChange={(e) =>
               onChange({ ...form, jurisdiction: e.target.value })
@@ -672,8 +653,9 @@ function CaseMetadataForm({
           />
         </Field>
       </div>
-      <Field label="Title">
+      <Field id="case-title" label="Title">
         <input
+          id="case-title"
           value={form.title}
           onChange={(e) => onChange({ ...form, title: e.target.value })}
           placeholder="Rivera v. Blake — Red-light T-bone at 5th & Main"
@@ -681,8 +663,9 @@ function CaseMetadataForm({
         />
       </Field>
       <div className="grid grid-cols-2 gap-2.5">
-        <Field label="Our insured">
+        <Field id="case-insured" label="Our insured">
           <input
+            id="case-insured"
             value={form.insured_name}
             onChange={(e) =>
               onChange({ ...form, insured_name: e.target.value })
@@ -691,8 +674,9 @@ function CaseMetadataForm({
             className="input"
           />
         </Field>
-        <Field label="Other party">
+        <Field id="case-other-party" label="Other party">
           <input
+            id="case-other-party"
             value={form.other_party_name}
             onChange={(e) =>
               onChange({ ...form, other_party_name: e.target.value })
@@ -702,8 +686,9 @@ function CaseMetadataForm({
           />
         </Field>
       </div>
-      <Field label="Documented damages (USD)">
+      <Field id="case-damages" label="Documented damages (USD)">
         <input
+          id="case-damages"
           value={form.damages_usd}
           onChange={(e) => onChange({ ...form, damages_usd: e.target.value })}
           placeholder="42000"
@@ -724,14 +709,16 @@ function CaseMetadataForm({
 }
 
 function Field({
+  id,
   label,
   children,
 }: {
+  id: string;
   label: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label htmlFor={id} className="flex flex-col gap-1">
       <span className="text-[10.5px] text-muted-2 uppercase tracking-wider">
         {label}
       </span>

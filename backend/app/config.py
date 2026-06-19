@@ -22,10 +22,9 @@ class ProviderConfig:
     label: str
 
 
-# Three direct providers, all reached through the OpenAI-compatible chat-completions
-# surface (one client, different base_url + key per provider). Three different model
-# FAMILIES — Anthropic, Google, OpenAI — which is what makes the cross-family debate
-# and dual-adjudicator consensus genuinely independent.
+# Provider registry for the OpenAI-compatible chat-completions surface.
+# Active defaults use OpenAI + Anthropic. Gemini remains configurable but is not
+# part of the current production assignment unless an agent is explicitly routed to it.
 PROVIDERS: dict[str, ProviderConfig] = {
     "anthropic": ProviderConfig(
         base_url=os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1/"),

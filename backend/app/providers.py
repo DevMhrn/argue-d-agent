@@ -1,7 +1,7 @@
-"""Model provider client + mock switch (mirrors src/providers.ts).
+"""Model provider client + mock switch.
 
-Anthropic, Google (Gemini), and OpenAI are all reached via their OpenAI-compatible
-chat endpoints, so the live path is one AsyncOpenAI client per provider. Mock mode
+Active defaults use OpenAI + Anthropic through OpenAI-compatible chat endpoints.
+Gemini remains in the provider registry only for explicit reassignment. Mock mode
 returns deterministic canned content so the whole pipeline runs with no keys/network.
 """
 from __future__ import annotations

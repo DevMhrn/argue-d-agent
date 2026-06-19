@@ -38,7 +38,7 @@ export function LedgerGraphPanel({
   ingestionComplete,
 }: Props) {
   return (
-    <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
+    <section className="flex min-h-70 flex-1 flex-col overflow-hidden rounded-card border border-border bg-panel shadow-card">
       <div className="shrink-0 border-border-soft border-b px-5 pt-5 pb-3">
         <LedgerHeader hasLedger={hasLedger} nodes={nodes} edges={edges} />
       </div>
