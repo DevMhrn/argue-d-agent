@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
  *   5. When every file shows "extracted", Lumen offers a "Finalize & open case"
  *      action that hits /api/ingest/finalize and navigates to /cases/{id}.
  */
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ChatComposer } from "@/components/ChatComposer";
 import { type ChatMessage, ChatMessageBubble } from "@/components/ChatMessage";
@@ -72,37 +73,25 @@ const INITIAL_CASE_FORM = {
 
 const UPLOAD_CONCURRENCY = 3;
 
+const GREETING_TEXT =
+  "I'm Lumen. I'll open the file, extract your evidence, and build a locked ledger before any agent argues. Start with the basics:";
+
 export default function NewCasePage() {
   const router = useRouter();
-
-  // Conversation state — messages are immutable bubbles, files are tracked
-  // separately so we can mutate their per-file progress in place.
+  // Conversation state lives here; files track per-file progress in place.
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [files, setFiles] = useState<LocalFile[]>([]);
   const [caseRow, setCaseRow] = useState<CaseRow | null>(null);
   const [phase, setPhase] = useState<Phase>("intake");
-
-  // Inline metadata form state (lives inside Lumen's first message bubble).
   const [form, setForm] = useState(INITIAL_CASE_FORM);
-
-  // Refs so we can scroll-to-bottom and stop polling on unmount.
   const feedRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<PollTimer | null>(null);
-
-  // ---- conversation helpers --------------------------------------------
-  function push(msg: Omit<ChatMessage, "id">) {
+  const push: MessagePusher = (msg) =>
     setMessages((prev) => [...prev, { id: uid(), ...msg }]);
-  }
 
   // Bootstrap with Lumen's greeting + the inline metadata form.
   useEffect(() => {
-    setMessages([
-      {
-        id: uid(),
-        role: "lumen",
-        text: "I'm Lumen. I'll open the file, extract your evidence, and build a locked ledger before any agent argues. Start with the basics:",
-      },
-    ]);
+    setMessages([{ id: uid(), role: "lumen", text: GREETING_TEXT }]);
   }, []);
 
   // Auto-scroll whenever the chat re-renders after message or file changes.
@@ -120,195 +109,35 @@ export default function NewCasePage() {
     };
   }, []);
 
-  // ---- step 1: create the case shell -----------------------------------
-  async function submitForm() {
-    if (phase !== "intake") return;
-    setPhase("uploading"); // tentatively — we'll roll back on error
-    push({ role: "user", text: caseSummary(form) });
-    push({ role: "lumen", text: "Creating the case shell…", pending: true });
+  // Handlers forward the lifted state + setters into the module-scoped pipeline
+  // helpers. No memoization — the React Compiler handles caching.
+  const handleAttach = (picked: File[]) =>
+    processAttachments({ picked, caseRow, files, push, setFiles, pollRef });
+  const submitForm = () =>
+    submitCaseForm({ phase, form, push, setCaseRow, setMessages, setPhase });
+  const finalizeCurrentCase = () =>
+    finalizeAndRedirect({ caseRow, push, setPhase, router });
+  const handleSend = (text: string) =>
+    processSend({ text, phase, form, caseRow, push, setForm });
 
-    try {
-      const created = await createCase(casePayload(form));
-      setCaseRow(created);
-      // Replace the pending bubble with the confirmation.
-      replaceLastMessage(setMessages, caseCreatedMessage(created));
-    } catch (err) {
-      replaceLastMessage(setMessages, caseCreateFailedMessage(err));
-      setPhase("intake");
-    }
-  }
-
-  // ---- step 2: per-file ingestion pipeline -----------------------------
-  function setFile(uid_: string, patch: Partial<LocalFile>) {
-    setFiles((prev) =>
-      prev.map((r) => (r.uid === uid_ ? { ...r, ...patch } : r)),
-    );
-  }
-
-  async function runOneFile(caseUuid: string, row: LocalFile) {
-    try {
-      setFile(row.uid, { stage: "hashing", progress: 0 });
-      const sha256 = await sha256Hex(row.file);
-      setFile(row.uid, { sha256 });
-
-      setFile(row.uid, { stage: "signing" });
-      const presign = await signUpload({
-        case_id: caseUuid,
-        filename: row.file.name,
-        mime_type: mimeOf(row.file),
-        size: row.file.size,
-        sha256,
-      });
-      setFile(row.uid, { documentId: presign.document_id });
-
-      setFile(row.uid, { stage: "uploading", progress: 0 });
-      await uploadToStorage(presign, row.file, (pct) =>
-        setFile(row.uid, { progress: pct }),
-      );
-
-      setFile(row.uid, { stage: "committing" });
-      const committed = await commitUpload(presign.document_id);
-      setFile(row.uid, { stage: stageAfterCommit(committed.status) });
-    } catch (err) {
-      setFile(row.uid, {
-        stage: "failed",
-        error: err instanceof ApiError ? err.message : String(err),
-      });
-    }
-  }
-
-  function startPolling(caseUuid: string) {
-    clearPolling(pollRef);
-    pollRef.current = globalThis.setInterval(async () => {
-      try {
-        const status = await getCaseStatus(caseUuid);
-        setFiles((prev) =>
-          prev.map((row) => mergePolledFile(row, status.documents)),
-        );
-        if (shouldStopPolling(status.documents)) {
-          clearPolling(pollRef);
-        }
-      } catch {
-        // ignore transient poll failures
-      }
-    }, 1500);
-  }
-
-  async function handleAttach(picked: File[]) {
-    if (!caseRow) {
-      push({
-        role: "lumen",
-        text: "Create the case first (use the form above), then drop files.",
-      });
-      return;
-    }
-
-    // Filter to supported types + per-class caps BEFORE we hit the backend so
-    // the user gets instant feedback instead of a 400 error chip. Drag-drop
-    // bypasses the <input accept="..."> filter, so this is the only place we
-    // can catch oversized/over-count uploads client-side.
-    const pendingCountsByCategory = countLocalFilesByCategory(files);
-    const { accepted, rejected } = partitionSupportedFiles(picked, {
-      pendingCountsByCategory,
-    });
-    notifyUnsupportedFiles(rejected, push);
-
-    if (accepted.length === 0) return;
-
-    // 1. Push a user message with the file chips (initially "queued").
-    const queued: LocalFile[] = queueFiles(accepted);
-    setFiles((prev) => [...prev, ...queued]);
-    push({
-      role: "user",
-      attachments: queued,
-    });
-    push({
-      role: "lumen",
-      text: uploadQueuedMessage(queued.length),
-    });
-
-    // 2. Run each file through the upload pipeline (concurrency = 3).
-    await Promise.all(createUploadWorkers(caseRow.id, queued, runOneFile));
-
-    // 3. Begin polling for extraction completion.
-    startPolling(caseRow.id);
-  }
-
-  // ---- step 3: finalize when all files are extracted -------------------
   const upload = uploadState(files);
-
-  async function finalizeCurrentCase() {
-    if (!caseRow) return;
-    setPhase("finalizing");
-    try {
-      await finalizeCase(caseRow.id);
-      router.push(`/cases/${encodeURIComponent(caseRow.id)}`);
-    } catch (err) {
-      push({
-        role: "lumen",
-        text: `Finalize failed: ${apiErrorMessage(err)}`,
-      });
-      setPhase("ready");
-    }
-  }
-
-  // ---- free-text user messages -----------------------------------------
-  function handleSend(text: string) {
-    push({ role: "user", text });
-    // First free-text message during intake auto-fills the title/summary.
-    if (phase === "intake" && !form.title) {
-      const firstLine = text.split("\n")[0].slice(0, 120);
-      setForm((f) => ({
-        ...f,
-        title: f.title || firstLine,
-        summary: f.summary || text,
-      }));
-      push({
-        role: "lumen",
-        text:
-          `Captured. Tweak the form above if anything's off, then click ` +
-          `Create case to continue.`,
-      });
-    } else {
-      // After case is created, free text is just notes — Lumen acknowledges.
-      push({
-        role: "lumen",
-        text: caseRow
-          ? "Noted. Drop the evidence files when you're ready (📎 or drag-drop)."
-          : "Fill in the form above to create the case shell first.",
-      });
-    }
-  }
-
-  // ---- the inline metadata form rendered inside the first Lumen bubble -
-  const metadataForm = (
-    <CaseMetadataForm
-      form={form}
-      phase={phase}
-      onChange={setForm}
-      onSubmit={submitForm}
-    />
-  );
-
-  // Inject the inline form into the first Lumen message bubble and keep any
-  // attachment chips synced to the live upload state (so chips advance in place
-  // instead of staying stuck on "Queued").
-  const renderedMessages = attachLiveFiles(
-    messages.map((m, i) =>
-      i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m,
-    ),
-    files,
-  );
   const showFinalizePrompt =
     upload.allExtracted && Boolean(caseRow) && phase !== "finalizing";
-  const displayMessages = showFinalizePrompt
-    ? renderedMessages.concat({
-        id: "finalize-prompt",
-        ...finalizePromptMessage(files.length, finalizeCurrentCase),
-      })
-    : renderedMessages;
+  const displayMessages = buildDisplayMessages({
+    messages,
+    files,
+    metadataForm: (
+      <CaseMetadataForm
+        form={form}
+        phase={phase}
+        onChange={setForm}
+        onSubmit={submitForm}
+      />
+    ),
+    showFinalize: showFinalizePrompt,
+    onFinalize: finalizeCurrentCase,
+  });
 
-  /* ----- render -------------------------------------------------------- */
   return (
     <div className="flex flex-1 flex-col">
       <NewCaseFeed
@@ -552,8 +381,242 @@ type MessageSetter = (
   value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 ) => void;
 type MessagePusher = (msg: Omit<ChatMessage, "id">) => void;
+type FileSetter = (uid_: string, patch: Partial<LocalFile>) => void;
+type Router = ReturnType<typeof useRouter>;
 interface PollRef {
   current: PollTimer | null;
+}
+
+// ---- step 1: create the case shell -----------------------------------
+async function submitCaseForm({
+  phase,
+  form,
+  push,
+  setCaseRow,
+  setMessages,
+  setPhase,
+}: {
+  phase: Phase;
+  form: CaseForm;
+  push: MessagePusher;
+  setCaseRow: Dispatch<SetStateAction<CaseRow | null>>;
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  setPhase: Dispatch<SetStateAction<Phase>>;
+}) {
+  if (phase !== "intake") return;
+  setPhase("uploading"); // tentatively — we'll roll back on error
+  push({ role: "user", text: caseSummary(form) });
+  push({ role: "lumen", text: "Creating the case shell…", pending: true });
+
+  try {
+    const created = await createCase(casePayload(form));
+    setCaseRow(created);
+    // Replace the pending bubble with the confirmation.
+    replaceLastMessage(setMessages, caseCreatedMessage(created));
+  } catch (err) {
+    replaceLastMessage(setMessages, caseCreateFailedMessage(err));
+    setPhase("intake");
+  }
+}
+
+// ---- step 2: per-file ingestion pipeline -----------------------------
+async function ingestOneFile(
+  caseUuid: string,
+  row: LocalFile,
+  setFile: FileSetter,
+) {
+  try {
+    setFile(row.uid, { stage: "hashing", progress: 0 });
+    const sha256 = await sha256Hex(row.file);
+    setFile(row.uid, { sha256 });
+
+    setFile(row.uid, { stage: "signing" });
+    const presign = await signUpload({
+      case_id: caseUuid,
+      filename: row.file.name,
+      mime_type: mimeOf(row.file),
+      size: row.file.size,
+      sha256,
+    });
+    setFile(row.uid, { documentId: presign.document_id });
+
+    setFile(row.uid, { stage: "uploading", progress: 0 });
+    await uploadToStorage(presign, row.file, (pct) =>
+      setFile(row.uid, { progress: pct }),
+    );
+
+    setFile(row.uid, { stage: "committing" });
+    const committed = await commitUpload(presign.document_id);
+    setFile(row.uid, { stage: stageAfterCommit(committed.status) });
+  } catch (err) {
+    setFile(row.uid, {
+      stage: "failed",
+      error: err instanceof ApiError ? err.message : String(err),
+    });
+  }
+}
+
+async function processAttachments({
+  picked,
+  caseRow,
+  files,
+  push,
+  setFiles,
+  pollRef,
+}: {
+  picked: File[];
+  caseRow: CaseRow | null;
+  files: LocalFile[];
+  push: MessagePusher;
+  setFiles: Dispatch<SetStateAction<LocalFile[]>>;
+  pollRef: PollRef;
+}) {
+  if (!caseRow) {
+    push({
+      role: "lumen",
+      text: "Create the case first (use the form above), then drop files.",
+    });
+    return;
+  }
+
+  // Filter to supported types + per-class caps BEFORE we hit the backend so
+  // the user gets instant feedback instead of a 400 error chip. Drag-drop
+  // bypasses the <input accept="..."> filter, so this is the only place we
+  // can catch oversized/over-count uploads client-side.
+  const pendingCountsByCategory = countLocalFilesByCategory(files);
+  const { accepted, rejected } = partitionSupportedFiles(picked, {
+    pendingCountsByCategory,
+  });
+  notifyUnsupportedFiles(rejected, push);
+
+  if (accepted.length === 0) return;
+
+  // 1. Push a user message with the file chips (initially "queued").
+  const queued: LocalFile[] = queueFiles(accepted);
+  setFiles((prev) => [...prev, ...queued]);
+  push({
+    role: "user",
+    attachments: queued,
+  });
+  push({
+    role: "lumen",
+    text: uploadQueuedMessage(queued.length),
+  });
+
+  // 2. Run each file through the upload pipeline (concurrency = 3).
+  const runOneFile = (caseUuid: string, row: LocalFile) =>
+    ingestOneFile(caseUuid, row, makeFileSetter(setFiles));
+  await Promise.all(createUploadWorkers(caseRow.id, queued, runOneFile));
+
+  // 3. Begin polling for extraction completion.
+  startCaseStatusPolling(caseRow.id, pollRef, setFiles);
+}
+
+function makeFileSetter(
+  setFiles: Dispatch<SetStateAction<LocalFile[]>>,
+): FileSetter {
+  return (uid_, patch) =>
+    setFiles((prev) =>
+      prev.map((r) => (r.uid === uid_ ? { ...r, ...patch } : r)),
+    );
+}
+
+// ---- step 3: finalize when all files are extracted -------------------
+async function finalizeAndRedirect({
+  caseRow,
+  push,
+  setPhase,
+  router,
+}: {
+  caseRow: CaseRow | null;
+  push: MessagePusher;
+  setPhase: Dispatch<SetStateAction<Phase>>;
+  router: Router;
+}) {
+  if (!caseRow) return;
+  setPhase("finalizing");
+  try {
+    await finalizeCase(caseRow.id);
+    router.push(`/cases/${encodeURIComponent(caseRow.id)}`);
+  } catch (err) {
+    push({
+      role: "lumen",
+      text: `Finalize failed: ${apiErrorMessage(err)}`,
+    });
+    setPhase("ready");
+  }
+}
+
+// ---- free-text user messages -----------------------------------------
+function processSend({
+  text,
+  phase,
+  form,
+  caseRow,
+  push,
+  setForm,
+}: {
+  text: string;
+  phase: Phase;
+  form: CaseForm;
+  caseRow: CaseRow | null;
+  push: MessagePusher;
+  setForm: Dispatch<SetStateAction<CaseForm>>;
+}) {
+  push({ role: "user", text });
+  // First free-text message during intake auto-fills the title/summary.
+  if (phase === "intake" && !form.title) {
+    const firstLine = text.split("\n")[0].slice(0, 120);
+    setForm((f) => ({
+      ...f,
+      title: f.title || firstLine,
+      summary: f.summary || text,
+    }));
+    push({
+      role: "lumen",
+      text:
+        `Captured. Tweak the form above if anything's off, then click ` +
+        `Create case to continue.`,
+    });
+  } else {
+    // After case is created, free text is just notes — Lumen acknowledges.
+    push({
+      role: "lumen",
+      text: caseRow
+        ? "Noted. Drop the evidence files when you're ready (📎 or drag-drop)."
+        : "Fill in the form above to create the case shell first.",
+    });
+  }
+}
+
+// ---- assemble the rendered conversation ------------------------------
+function buildDisplayMessages({
+  messages,
+  files,
+  metadataForm,
+  showFinalize,
+  onFinalize,
+}: {
+  messages: ChatMessage[];
+  files: LocalFile[];
+  metadataForm: React.ReactNode;
+  showFinalize: boolean;
+  onFinalize: () => void;
+}): ChatMessage[] {
+  // Inject the inline form into the first Lumen message bubble and keep any
+  // attachment chips synced to the live upload state (so chips advance in place
+  // instead of staying stuck on "Queued").
+  const renderedMessages = attachLiveFiles(
+    messages.map((m, i) =>
+      i === 0 && m.role === "lumen" ? { ...m, form: metadataForm } : m,
+    ),
+    files,
+  );
+  if (!showFinalize) return renderedMessages;
+  return renderedMessages.concat({
+    id: "finalize-prompt",
+    ...finalizePromptMessage(files.length, onFinalize),
+  });
 }
 
 function replaceLastMessage(
@@ -611,6 +674,27 @@ function createUploadWorkers(
   });
 }
 
+function startCaseStatusPolling(
+  caseUuid: string,
+  pollRef: PollRef,
+  setFiles: Dispatch<SetStateAction<LocalFile[]>>,
+) {
+  clearPolling(pollRef);
+  pollRef.current = globalThis.setInterval(async () => {
+    try {
+      const status = await getCaseStatus(caseUuid);
+      setFiles((prev) =>
+        prev.map((row) => mergePolledFile(row, status.documents)),
+      );
+      if (shouldStopPolling(status.documents)) {
+        clearPolling(pollRef);
+      }
+    } catch {
+      // ignore transient poll failures
+    }
+  }, 1500);
+}
+
 function clearPolling(pollRef: PollRef) {
   if (!pollRef.current) return;
   globalThis.clearInterval(pollRef.current);
@@ -664,87 +748,107 @@ function CaseMetadataForm({
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field id="case-title" label="Case title">
-          <input
-            id="case-title"
-            value={form.title}
-            onChange={(e) => onChange({ ...form, title: e.target.value })}
-            placeholder="Rivera v. Blake"
-            className="input"
-          />
-        </Field>
-        <Field id="case-id" label="Case ID">
-          <input
-            id="case-id"
-            value={form.case_id}
-            onChange={(e) => onChange({ ...form, case_id: e.target.value })}
-            placeholder={`CLM-${new Date().getFullYear()}-`}
-            className="input font-mono text-muted"
-          />
-        </Field>
-        <Field id="case-insured" label="Insured">
-          <input
-            id="case-insured"
-            value={form.insured_name}
-            onChange={(e) =>
-              onChange({ ...form, insured_name: e.target.value })
-            }
-            placeholder="Rivera"
-            className="input"
-          />
-        </Field>
-        <Field id="case-other-party" label="Other party">
-          <input
-            id="case-other-party"
-            value={form.other_party_name}
-            onChange={(e) =>
-              onChange({ ...form, other_party_name: e.target.value })
-            }
-            placeholder="Blake"
-            className="input"
-          />
-        </Field>
-        <Field id="case-jurisdiction" label="Jurisdiction">
-          <input
-            id="case-jurisdiction"
-            value={form.jurisdiction}
-            onChange={(e) =>
-              onChange({ ...form, jurisdiction: e.target.value })
-            }
-            placeholder="CA"
-            maxLength={4}
-            className="input"
-          />
-        </Field>
-        <Field id="case-damages" label="Documented damages (USD)">
-          <input
-            id="case-damages"
-            value={form.damages_usd}
-            onChange={(e) => onChange({ ...form, damages_usd: e.target.value })}
-            placeholder="optional"
-            inputMode="decimal"
-            className="input font-mono text-muted-2"
-          />
-        </Field>
-      </div>
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={created}
-        className="mt-4 font-semibold text-[12.5px] disabled:opacity-50"
-        style={{
-          padding: "9px 16px",
-          borderRadius: "8px",
-          border: "1px solid var(--color-accent-dim)",
-          background: "rgba(111,155,240,0.12)",
-          color: "var(--color-accent-strong)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {created ? "Created ✓" : "Create case"}
-      </button>
+      <CaseMetadataFields form={form} onChange={onChange} />
+      <CreateCaseButton created={created} onSubmit={onSubmit} />
     </div>
+  );
+}
+
+function CaseMetadataFields({
+  form,
+  onChange,
+}: {
+  form: CaseForm;
+  onChange: (form: CaseForm) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Field id="case-title" label="Case title">
+        <input
+          id="case-title"
+          value={form.title}
+          onChange={(e) => onChange({ ...form, title: e.target.value })}
+          placeholder="Rivera v. Blake"
+          className="input"
+        />
+      </Field>
+      <Field id="case-id" label="Case ID">
+        <input
+          id="case-id"
+          value={form.case_id}
+          onChange={(e) => onChange({ ...form, case_id: e.target.value })}
+          placeholder={`CLM-${new Date().getFullYear()}-`}
+          className="input font-mono text-muted"
+        />
+      </Field>
+      <Field id="case-insured" label="Insured">
+        <input
+          id="case-insured"
+          value={form.insured_name}
+          onChange={(e) => onChange({ ...form, insured_name: e.target.value })}
+          placeholder="Rivera"
+          className="input"
+        />
+      </Field>
+      <Field id="case-other-party" label="Other party">
+        <input
+          id="case-other-party"
+          value={form.other_party_name}
+          onChange={(e) =>
+            onChange({ ...form, other_party_name: e.target.value })
+          }
+          placeholder="Blake"
+          className="input"
+        />
+      </Field>
+      <Field id="case-jurisdiction" label="Jurisdiction">
+        <input
+          id="case-jurisdiction"
+          value={form.jurisdiction}
+          onChange={(e) => onChange({ ...form, jurisdiction: e.target.value })}
+          placeholder="CA"
+          maxLength={4}
+          className="input"
+        />
+      </Field>
+      <Field id="case-damages" label="Documented damages (USD)">
+        <input
+          id="case-damages"
+          value={form.damages_usd}
+          onChange={(e) => onChange({ ...form, damages_usd: e.target.value })}
+          placeholder="optional"
+          inputMode="decimal"
+          className="input font-mono text-muted-2"
+        />
+      </Field>
+    </div>
+  );
+}
+
+function CreateCaseButton({
+  created,
+  onSubmit,
+}: {
+  created: boolean;
+  onSubmit: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSubmit}
+      disabled={created}
+      className="mt-4 font-semibold text-[12.5px] disabled:opacity-50"
+      style={{
+        padding: "9px 16px",
+        borderRadius: "8px",
+        border: "1px solid var(--color-accent-dim)",
+        background: "rgba(111,155,240,0.12)",
+        color: "var(--color-accent-strong)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {created ? "Created ✓" : "Create case"}
+    </button>
   );
 }
 

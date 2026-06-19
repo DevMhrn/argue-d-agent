@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BandSigil, Icon, Sigil } from "./Icon";
+
+/** Scroll distance (px) before the chrome may hide — roughly its own height. */
+const HIDE_AFTER = 80;
 
 const NAV: { label: string; href: string; match: (p: string) => boolean }[] = [
   {
@@ -33,72 +36,102 @@ const NAV: { label: string; href: string; match: (p: string) => boolean }[] = [
 export function AppChrome() {
   const pathname = usePathname() ?? "/";
   const [howOpen, setHowOpen] = useState(false);
+  const [hidden, setHidden] = useState(false);
+
+  // Smart hide-on-scroll: the chrome slides up as soon as you scroll down past
+  // its own height, and returns the moment you scroll up. rAF-throttled.
+  useEffect(() => {
+    let last = globalThis.scrollY;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      globalThis.requestAnimationFrame(() => {
+        const y = globalThis.scrollY;
+        if (y < HIDE_AFTER) setHidden(false);
+        else if (y > last + 4) setHidden(true);
+        else if (y < last - 4) setHidden(false);
+        last = y;
+        ticking = false;
+      });
+    };
+    globalThis.addEventListener("scroll", onScroll, { passive: true });
+    return () => globalThis.removeEventListener("scroll", onScroll);
+  }, []);
 
   return (
     <>
-      {/* engine status strip */}
-      <div className="sticky top-0 z-51 flex h-6.5 items-center gap-2.5 border-border-soft border-b bg-[#100d0a] px-6 font-mono text-[9.5px] text-muted-2 uppercase tracking-[0.14em]">
-        <span className="flex items-center gap-1.5 text-ok">
-          <span
-            className="h-1.25 w-1.25 rounded-full bg-ok"
-            style={{
-              boxShadow: "0 0 6px var(--color-ok)",
-              animation: "livePulse 1.8s infinite",
-            }}
-          />
-          Lumen engine
-        </span>
-        <span className="text-border">·</span>
-        <span className="text-ok">Live</span>
-        <span className="ml-auto text-muted-2">All systems operational</span>
-      </div>
-
-      {/* main chrome */}
-      <header
-        className="sticky top-6.5 z-50 flex h-14 items-center gap-6 border-border border-b px-6 backdrop-blur-md"
-        style={{ background: "rgba(21,18,14,0.86)" }}
+      <div
+        className={`sticky top-0 z-50 transition-transform duration-300 ${
+          hidden ? "-translate-y-full" : "translate-y-0"
+        }`}
       >
-        <Link href="/" className="flex items-center gap-2.5 no-underline">
-          <Sigil size={22} />
-          <span className="font-semibold text-[14px] text-text tracking-[0.16em]">
-            LUMEN
+        {/* engine status strip */}
+        <div className="flex h-6.5 items-center gap-2.5 border-border-soft border-b bg-[#100d0a] px-6 font-mono text-[9.5px] text-muted-2 uppercase tracking-[0.14em]">
+          <span className="flex items-center gap-1.5 text-ok">
+            <span
+              className="h-1.25 w-1.25 rounded-full bg-ok"
+              style={{
+                boxShadow: "0 0 6px var(--color-ok)",
+                animation: "livePulse 1.8s infinite",
+              }}
+            />
+            Lumen engine
           </span>
-          <span className="border-border border-l pl-2.5 text-[10.5px] text-muted-2 uppercase tracking-[0.14em]">
-            Subrogation Recovery
-          </span>
-        </Link>
-
-        <nav className="flex gap-0.5 rounded-pill border border-border bg-panel p-0.75">
-          {NAV.map((item) => {
-            const active = item.match(pathname);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded-[7px] px-3.25 py-1.5 font-medium text-[12.5px] no-underline transition-colors"
-                style={{
-                  background: active ? "var(--color-panel-3)" : "transparent",
-                  color: active ? "var(--color-text)" : "var(--color-muted-2)",
-                }}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="ml-auto flex items-center gap-3.5">
-          <button
-            type="button"
-            onClick={() => setHowOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.75 py-1.5 text-[12px] text-muted hover:border-accent-dim hover:text-text"
-          >
-            <Icon name="help" size={13} />
-            How Lumen works
-          </button>
-          <BandSigil />
+          <span className="text-border">·</span>
+          <span className="text-ok">Live</span>
+          <span className="ml-auto text-muted-2">All systems operational</span>
         </div>
-      </header>
+
+        {/* main chrome */}
+        <header
+          className="flex h-14 items-center gap-6 border-border border-b px-6 backdrop-blur-md"
+          style={{ background: "rgba(21,18,14,0.86)" }}
+        >
+          <Link href="/" className="flex items-center gap-2.5 no-underline">
+            <Sigil size={22} />
+            <span className="font-semibold text-[14px] text-text tracking-[0.16em]">
+              LUMEN
+            </span>
+            <span className="border-border border-l pl-2.5 text-[10.5px] text-muted-2 uppercase tracking-[0.14em]">
+              Subrogation Recovery
+            </span>
+          </Link>
+
+          <nav className="flex gap-0.5 rounded-pill border border-border bg-panel p-0.75">
+            {NAV.map((item) => {
+              const active = item.match(pathname);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-[7px] px-3.25 py-1.5 font-medium text-[12.5px] no-underline transition-colors"
+                  style={{
+                    background: active ? "var(--color-panel-3)" : "transparent",
+                    color: active
+                      ? "var(--color-text)"
+                      : "var(--color-muted-2)",
+                  }}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="ml-auto flex items-center gap-3.5">
+            <button
+              type="button"
+              onClick={() => setHowOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-2.75 py-1.5 text-[12px] text-muted hover:border-accent-dim hover:text-text"
+            >
+              <Icon name="help" size={13} />
+              How Lumen works
+            </button>
+            <BandSigil />
+          </div>
+        </header>
+      </div>
 
       {howOpen && <HowItWorks onClose={() => setHowOpen(false)} />}
     </>

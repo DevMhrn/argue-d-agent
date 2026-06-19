@@ -28,9 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} antialiased`}
     >
-      <body className="flex min-h-full flex-col font-sans text-text">
+      <body className="flex min-h-screen flex-col font-sans text-text">
         <AppChrome />
         <main className="flex flex-1 flex-col">{children}</main>
       </body>

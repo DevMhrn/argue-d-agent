@@ -187,21 +187,10 @@ const THEME_CSS = `@import "tailwindcss";
 const EYEBROW =
   "font-mono text-[11px] text-muted-2 uppercase tracking-[0.14em]";
 
-export default function TokensPage() {
+// ── Color ─────────────────────────────────────────────────────────
+function ColorSwatches() {
   return (
-    <div className="mx-auto w-full max-w-275 px-6 pt-9 pb-20">
-      <div className={`${EYEBROW} mb-2.25`}>Design tokens</div>
-      <h1 className="mb-2 font-semibold text-[32px] tracking-[-0.02em]">
-        The Lumen system
-      </h1>
-      <p className="mb-9 max-w-155 text-[14px] text-muted leading-[1.6]">
-        Warm-charcoal, paper-adjacent dark theme. Maps 1:1 to Tailwind v4{" "}
-        <span className="font-mono text-accent">@theme</span>. Money is embossed
-        currency, not warning; gates read verified/review/violated, not
-        stoplight.
-      </p>
-
-      {/* ── Color ─────────────────────────────────────────────────────── */}
+    <>
       <div className={`${EYEBROW} mb-3.5`}>Color</div>
       <div className="mb-10 grid grid-cols-4 gap-3">
         {SWATCHES.map((sw) => (
@@ -222,73 +211,86 @@ export default function TokensPage() {
           </div>
         ))}
       </div>
+    </>
+  );
+}
 
-      {/* ── Typography · Radii ────────────────────────────────────────── */}
-      <div className="mb-10 grid grid-cols-2 gap-6">
+// ── Typography ────────────────────────────────────────────────────
+function TypographyPanel() {
+  return (
+    <div>
+      <div className={`${EYEBROW} mb-3.5`}>Typography</div>
+      <div className="flex flex-col gap-4.5 rounded-card border border-border bg-panel p-5.5">
         <div>
-          <div className={`${EYEBROW} mb-3.5`}>Typography</div>
-          <div className="flex flex-col gap-4.5 rounded-card border border-border bg-panel p-5.5">
-            <div>
-              <div className="mb-1.25 font-mono text-[10px] text-muted-2">
-                Geist · display / UI
-              </div>
-              <div className="font-semibold text-[30px] tracking-[-0.02em]">
-                Rivera v. Blake
-              </div>
-            </div>
-            <div>
-              <div className="mb-1.25 font-mono text-[10px] text-muted-2">
-                Source Serif 4 · the artifact
-              </div>
-              <div className="font-serif text-[18px]">
-                We hereby demand recovery in the amount stated.
-              </div>
-            </div>
-            <div>
-              <div className="mb-1.25 font-mono text-[10px] text-muted-2">
-                Geist Mono · IDs, money, hashes
-              </div>
-              <div className="tnum font-mono text-[18px] text-money">
-                $35,700 · F3 · bf2a…c91e
-              </div>
-            </div>
+          <div className="mb-1.25 font-mono text-[10px] text-muted-2">
+            Geist · display / UI
+          </div>
+          <div className="font-semibold text-[30px] tracking-[-0.02em]">
+            Rivera v. Blake
           </div>
         </div>
-
         <div>
-          <div className={`${EYEBROW} mb-3.5`}>Radii · spacing</div>
-          <div className="flex flex-col gap-4 rounded-card border border-border bg-panel p-5.5">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="h-10 w-13.5 border border-border bg-panel-3"
-                style={{ borderRadius: "13px" }}
-              />
-              <div className="text-[12px]">
-                <div className="font-medium">card · 13px</div>
-                <div className="text-[11px] text-muted-2">panels, surfaces</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3.5">
-              <div
-                className="h-6.5 w-13.5 border border-border bg-panel-3"
-                style={{ borderRadius: "20px" }}
-              />
-              <div className="text-[12px]">
-                <div className="font-medium">pill · 20px</div>
-                <div className="text-[11px] text-muted-2">
-                  chips, badges, buttons
-                </div>
-              </div>
-            </div>
-            <div className="text-[12px] text-muted leading-[1.6]">
-              8px grid · gaps of 8/14/18/24/28 throughout. Hero surfaces breathe
-              (26–30px padding); lists stay tight (8–12px).
-            </div>
+          <div className="mb-1.25 font-mono text-[10px] text-muted-2">
+            Source Serif 4 · the artifact
+          </div>
+          <div className="font-serif text-[18px]">
+            We hereby demand recovery in the amount stated.
+          </div>
+        </div>
+        <div>
+          <div className="mb-1.25 font-mono text-[10px] text-muted-2">
+            Geist Mono · IDs, money, hashes
+          </div>
+          <div className="tnum font-mono text-[18px] text-money">
+            $35,700 · F3 · bf2a…c91e
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* ── Type scale ────────────────────────────────────────────────── */}
+// ── Radii · spacing ───────────────────────────────────────────────
+function RadiiSpacingPanel() {
+  return (
+    <div>
+      <div className={`${EYEBROW} mb-3.5`}>Radii · spacing</div>
+      <div className="flex flex-col gap-4 rounded-card border border-border bg-panel p-5.5">
+        <div className="flex items-center gap-3.5">
+          <div
+            className="h-10 w-13.5 border border-border bg-panel-3"
+            style={{ borderRadius: "13px" }}
+          />
+          <div className="text-[12px]">
+            <div className="font-medium">card · 13px</div>
+            <div className="text-[11px] text-muted-2">panels, surfaces</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3.5">
+          <div
+            className="h-6.5 w-13.5 border border-border bg-panel-3"
+            style={{ borderRadius: "20px" }}
+          />
+          <div className="text-[12px]">
+            <div className="font-medium">pill · 20px</div>
+            <div className="text-[11px] text-muted-2">
+              chips, badges, buttons
+            </div>
+          </div>
+        </div>
+        <div className="text-[12px] text-muted leading-[1.6]">
+          8px grid · gaps of 8/14/18/24/28 throughout. Hero surfaces breathe
+          (26–30px padding); lists stay tight (8–12px).
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Type scale ────────────────────────────────────────────────────
+function TypeScaleTable() {
+  return (
+    <>
       <div className={`${EYEBROW} mb-3.5`}>Type scale</div>
       <div className="mb-10 overflow-hidden rounded-card border border-border bg-panel">
         {TYPE_SCALE.map((t) => (
@@ -304,8 +306,14 @@ export default function TokensPage() {
           </div>
         ))}
       </div>
+    </>
+  );
+}
 
-      {/* ── theme.css ─────────────────────────────────────────────────── */}
+// ── theme.css ─────────────────────────────────────────────────────
+function ThemeCssBlock() {
+  return (
+    <>
       <div className={`${EYEBROW} mb-3.5`}>theme.css — Tailwind v4</div>
       <pre
         className="m-0 overflow-auto rounded-card border border-border p-5.5 font-mono text-[12px] leading-[1.65]"
@@ -313,6 +321,35 @@ export default function TokensPage() {
       >
         {THEME_CSS}
       </pre>
+    </>
+  );
+}
+
+export default function TokensPage() {
+  return (
+    <div className="mx-auto w-full max-w-275 px-6 pt-9 pb-20">
+      <div className={`${EYEBROW} mb-2.25`}>Design tokens</div>
+      <h1 className="mb-2 font-semibold text-[32px] tracking-[-0.02em]">
+        The Lumen system
+      </h1>
+      <p className="mb-9 max-w-155 text-[14px] text-muted leading-[1.6]">
+        Warm-charcoal, paper-adjacent dark theme. Maps 1:1 to Tailwind v4{" "}
+        <span className="font-mono text-accent">@theme</span>. Money is embossed
+        currency, not warning; gates read verified/review/violated, not
+        stoplight.
+      </p>
+
+      <ColorSwatches />
+
+      {/* ── Typography · Radii ────────────────────────────────────────── */}
+      <div className="mb-10 grid grid-cols-2 gap-6">
+        <TypographyPanel />
+        <RadiiSpacingPanel />
+      </div>
+
+      <TypeScaleTable />
+
+      <ThemeCssBlock />
     </div>
   );
 }

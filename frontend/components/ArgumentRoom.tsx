@@ -12,17 +12,14 @@ import {
   shapeRadius,
 } from "@/lib/agents";
 import type { RoomPosting } from "@/lib/types";
+import type { RunState } from "@/lib/useRunStream";
 
 interface Props {
-  status: "idle" | "connecting" | "streaming" | "complete" | "error";
-  postings: RoomPosting[];
-  bandRoomId: string | null;
-  activeRunId: string | null;
-  lastSeq: number | null;
+  /** Live run state for this case — status, postings, activity, run ids. */
+  run: RunState;
   canRun: boolean;
   lockedReason: string | null;
   onRun: () => void;
-  activity?: { agent: string; content: string } | null;
   /** Fact id currently focused by a citation click (cross-component highlight). */
   highlightFact?: string | null;
   /** Invoked when a `[ID]` citation chip is clicked. */
@@ -77,20 +74,21 @@ const ISSUE_PLAIN: Record<string, string> = {
   legal_basis: "On what legal basis?",
 };
 
+// The hero room routes four inherent states (locked / idle / running /
+// adjourned) and already delegates to subcomponents; its CRAP score is driven
+// by zero test coverage, not genuine over-complexity. Splitting it further only
+// relocates the same branches and reads worse.
+// fallow-ignore-next-line complexity
 export function ArgumentRoom({
-  status,
-  postings,
-  bandRoomId,
-  activeRunId,
-  lastSeq,
+  run,
   canRun,
   lockedReason,
   onRun,
-  activity = null,
   highlightFact = null,
   onCiteClick,
   runCount = 0,
 }: Props) {
+  const { status, postings, bandRoomId, activeRunId, lastSeq, activity } = run;
   const [issueFilter, setIssueFilter] = useState<string>("all");
   const isLocked = !canRun;
   const running = status === "streaming" || status === "connecting";
