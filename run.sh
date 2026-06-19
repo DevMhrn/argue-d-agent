@@ -150,6 +150,9 @@ cmd_demo_band() {
   ensure_venv
   ensure_band_config
   export LUMEN_BAND=1
+  # In mock mode, pace each posting so the debate unfolds turn-by-turn (the
+  # "live flow" feel) instead of dumping at once. No-op in live mode.
+  export LUMEN_MOCK_DELAY_MS="${LUMEN_MOCK_DELAY_MS:-700}"
   printf "${C_BLUE}→ CLI demo through REAL Band (LUMEN_BAND=1). Content: %s${C_RESET}\n" \
     "$([[ "${LUMEN_MOCK:-}" == "1" ]] && echo "deterministic (LUMEN_MOCK=1)" || echo "LIVE models")"
   exec "$PYTHON" -m backend.app.run_demo --band
@@ -160,6 +163,9 @@ cmd_dev_band() {
   # Content is LIVE by default; prepend LUMEN_MOCK=1 for a bulletproof recorded take.
   ensure_band_config
   export LUMEN_BAND=1
+  # In mock mode, pace each posting so the room fills turn-by-turn (the "live
+  # flow" feel) — no dead air, deterministic. No-op in live mode.
+  export LUMEN_MOCK_DELAY_MS="${LUMEN_MOCK_DELAY_MS:-700}"
   printf "${C_GREEN}→ Band ENABLED (LUMEN_BAND=1). Content: %s${C_RESET}\n" \
     "$([[ "${LUMEN_MOCK:-}" == "1" ]] && echo "deterministic (LUMEN_MOCK=1)" || echo "LIVE models")"
   cmd_dev
